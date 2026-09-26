@@ -28,8 +28,8 @@
 
 <!-- ============ CẤU HÌNH — đổi 2 dòng dưới đây trước khi deploy ============ -->
 <script>
-  const SUPABASE_URL ='https://vfmuduzwribgprtvehys.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_VMnDyqCCckqzUzTr8kjfUQ_f4gzrUcT';
+  const SUPABASE_URL = 'https://vfmuduzwribgprtvehys.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_VMnDyqCCckqzUzTr8kjfUQ_f4gzrUcT';
   // Giá trị mặc định — sẽ bị ghi đè bởi bảng clan_settings khi tải trang (mục Cài đặt admin)
   let CLAN_NAME = 'RACING CLAN';
   let CLAN_SLOGAN = 'Nơi lưu giữ mọi kỷ lục của clan.';
@@ -173,7 +173,7 @@ function render404(){
   </div>`);
 }
 
-// ---------- AUTH ----------
+// ---------- AUTH (username + password; synthetic internal email, no email entry) ----------
 async function loadSession(){
   const { data:{ session } } = await sb.auth.getSession();
   currentUser = session?.user || null;
@@ -189,7 +189,7 @@ route('/login', async ()=>{
   layout(`<div class="max-w-md mx-auto card p-8 mt-8">
     <h1 class="text-2xl font-extrabold mb-6">Đăng nhập</h1>
     <form id="f-login" class="space-y-4">
-      <div><label class="text-sm text-[--tx2]">Email</label><input required type="email" name="email" class="w-full mt-1"></div>
+      <div><label class="text-sm text-[--tx2]">Username</label><input required name="username" minlength="3" maxlength="32" class="w-full mt-1"></div>
       <div><label class="text-sm text-[--tx2]">Mật khẩu</label><input required type="password" name="password" class="w-full mt-1"></div>
       <button class="btn-p w-full" type="submit">Đăng nhập</button>
     </form>
@@ -198,7 +198,7 @@ route('/login', async ()=>{
   document.getElementById('f-login').onsubmit = async (e)=>{
     e.preventDefault();
     const fd=new FormData(e.target);
-    const { error } = await sb.auth.signInWithPassword({ email:fd.get('email'), password:fd.get('password') });
+    const username = String(fd.get('username')||'').trim().toLowerCase();\n    const { error } = await sb.auth.signInWithPassword({ email: username+'@login.clan.local', password:fd.get('password') });
     if(error) return toast(error.message,'err');
     await loadSession(); toast('Đăng nhập thành công'); navigate('/');
   };
@@ -210,7 +210,6 @@ route('/register', async ()=>{
     <form id="f-reg" class="space-y-4">
       <div><label class="text-sm text-[--tx2]">Username</label><input required name="username" minlength="3" maxlength="32" class="w-full mt-1"></div>
       <div><label class="text-sm text-[--tx2]">Tên ingame</label><input required name="ingame_name" class="w-full mt-1"></div>
-      <div><label class="text-sm text-[--tx2]">Email</label><input required type="email" name="email" class="w-full mt-1"></div>
       <div><label class="text-sm text-[--tx2]">Mật khẩu</label><input required type="password" minlength="6" name="password" class="w-full mt-1"></div>
       <button class="btn-p w-full" type="submit">Tạo tài khoản</button>
     </form>
@@ -218,7 +217,7 @@ route('/register', async ()=>{
   document.getElementById('f-reg').onsubmit = async (e)=>{
     e.preventDefault();
     const fd=new FormData(e.target);
-    const { data, error } = await sb.auth.signUp({ email:fd.get('email'), password:fd.get('password') });
+    const username = String(fd.get('username')||'').trim().toLowerCase();\n    if(!/^[a-z0-9_]{3,32}$/.test(username)) return toast('Username chỉ gồm chữ thường, số và dấu gạch dưới (3–32 ký tự).','err');\n    const { data, error } = await sb.auth.signUp({ email: username+'@login.clan.local', password:fd.get('password'), options:{ data:{ username } } });
     if(error) return toast(error.message,'err');
     const { error:perr } = await sb.from('profiles').insert({
       id: data.user.id, username: fd.get('username'), ingame_name: fd.get('ingame_name')
