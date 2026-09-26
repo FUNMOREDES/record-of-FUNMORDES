@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FUNMORDES RECORD LEADERBOARD</title>
-  
+<link id="clan-favicon" rel="icon" type="image/png" href="">  
 <meta property="og:title" content="FUNMORDES RECORD LEADERBOARD">
 <meta property="og:description" content="Bảng xếp hạng và lưu giữ kỷ lục đua xe của clan FUNMORDES.">
 <meta property="og:type" content="website">
@@ -108,7 +108,16 @@ function filePreview(inputEl, imgEl){
 async function loadClanSettings(){
   const { data } = await sb.from('clan_settings').select('*').eq('id',true).single();
   if(!data) return;
-  CLAN_NAME = data.clan_name; CLAN_SLOGAN = data.slogan; CLAN_LOGO = data.logo_url;
+  CLAN_NAME = data.clan_name;
+CLAN_SLOGAN = data.slogan;
+CLAN_LOGO = data.logo_url;
+
+// Hiển thị logo clan trên tab trình duyệt
+const favicon = document.getElementById('clan-favicon');
+
+if (favicon && CLAN_LOGO) {
+  favicon.href = CLAN_LOGO;
+}
   document.title = 'FUNMORDES RECORD LEADERBOARD';
   document.documentElement.style.setProperty('--blue', data.color_primary);
   document.documentElement.style.setProperty('--orange', data.color_accent);
