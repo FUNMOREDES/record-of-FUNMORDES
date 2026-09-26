@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
 <title>FUNMORDES RECORD LEADERBOARD</title>
 <link rel="icon" type="image/jpg" href="./1790452658424_427855192085454370_5721502452398162612_4d5252365be6b5432cd023448cf62ec3.jpg">
 <link id="clan-favicon" rel="icon" type="image/png" href="">  
@@ -15,18 +15,51 @@
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
   :root{--bg:#080B12;--bg2:#0E1420;--card:#121B2A;--card-h:#182438;--blue:#38BDF8;--orange:#F97316;--gold:#FACC15;--ok:#22C55E;--err:#EF4444;--tx:#F1F5F9;--tx2:#94A3B8;--bd:rgba(148,163,184,0.14)}
-  body{background:var(--bg);color:var(--tx);font-family:'Be Vietnam Pro',sans-serif}
+  *{-webkit-tap-highlight-color:transparent}
+  body{background:var(--bg);color:var(--tx);font-family:'Be Vietnam Pro',sans-serif;overflow-x:hidden}
   .card{background:var(--card);border:1px solid var(--bd);border-radius:14px;transition:.2s}
   .card:hover{background:var(--card-h)}
-  .btn-p{background:var(--orange);color:#0a0a0a;font-weight:700;border-radius:10px;padding:.6rem 1.2rem;transition:.2s}
+  .btn-p{background:var(--orange);color:#0a0a0a;font-weight:700;border-radius:10px;padding:.6rem 1.2rem;transition:.2s;display:inline-flex;align-items:center;justify-content:center;gap:.4rem}
   .btn-p:hover{filter:brightness(1.1)}
-  .btn-s{border:1px solid var(--bd);border-radius:10px;padding:.6rem 1.2rem;color:var(--tx)}
+  .btn-p:active{transform:scale(.97)}
+  .btn-s{border:1px solid var(--bd);border-radius:10px;padding:.6rem 1.2rem;color:var(--tx);display:inline-flex;align-items:center;justify-content:center;gap:.4rem}
   .btn-s:hover{background:var(--card-h)}
-  input,select,textarea{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:.55rem .8rem;color:var(--tx)}
+  .btn-s:active{transform:scale(.97)}
+  input,select,textarea{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:.55rem .8rem;color:var(--tx);font-size:16px} /* 16px tránh zoom iOS */
   input:focus,select:focus,textarea:focus{outline:2px solid var(--blue)}
-  .badge{border-radius:999px;padding:.15rem .6rem;font-size:.75rem;font-weight:600}
+  .badge{border-radius:999px;padding:.15rem .6rem;font-size:.75rem;font-weight:600;white-space:nowrap}
   a{cursor:pointer}
   ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:8px}
+
+  /* ===== MOBILE MENU ===== */
+  .mobile-menu{position:fixed;inset:0;z-index:50;background:rgba(8,11,18,.98);backdrop-filter:blur(12px);display:flex;flex-direction:column;padding:1.5rem;transform:translateX(100%);transition:transform .3s ease}
+  .mobile-menu.open{transform:translateX(0)}
+  .mobile-menu a{display:block;padding:1rem;border-radius:12px;font-size:1.25rem;font-weight:700;color:var(--tx2);border-bottom:1px solid var(--bd)}
+  .mobile-menu a:active{background:var(--card)}
+  .mobile-menu a.active{color:var(--blue)}
+
+  /* ===== RESPONSIVE TABLE ===== */
+  @media (max-width:640px){
+    .resp-table thead{display:none}
+    .resp-table tbody tr{display:block;padding:.75rem;border-bottom:1px solid var(--bd);border-radius:10px;margin-bottom:.5rem;background:var(--bg2)}
+    .resp-table tbody tr:last-child{border-bottom:none}
+    .resp-table td{display:flex;justify-content:space-between;align-items:center;padding:.35rem .5rem;border:none}
+    .resp-table td::before{content:attr(data-label);font-size:.8rem;color:var(--tx2);font-weight:600;margin-right:1rem}
+    .resp-table td:first-child{font-size:1.05rem}
+  }
+
+  /* Header height mobile */
+  @media (max-width:768px){
+    header .header-inner{height:70px}
+    main{padding-left:1rem;padding-right:1rem}
+  }
+
+  /* Podium mobile */
+  @media (max-width:640px){
+    .podium-grid{grid-template-columns:1fr !important;gap:.75rem !important}
+    .podium-grid .card{display:flex;align-items:center;gap:1rem;text-align:left;padding:1rem}
+    .podium-grid .card .text-3xl{font-size:1.75rem;margin:0}
+  }
 </style>
 </head>
 <body>
@@ -34,8 +67,7 @@
 <!-- ============ CẤU HÌNH — đổi 2 dòng dưới đây trước khi deploy ============ -->
 <script>
   const SUPABASE_URL = 'https://vfmuduzwribgprtvehys.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_VMnDyqCCckqzUzTr8kjfUQ_f4gzrUcT';
-  // Giá trị mặc định — sẽ bị ghi đè bởi bảng clan_settings khi tải trang (mục Cài đặt admin)
+  const SUPABASE_ANON_KEY = 'sb_publishable_VMnDyqCCckqzUzTr8kjfUQ_f4gzrUcT';
   let CLAN_NAME = 'RACING CLAN';
   let CLAN_SLOGAN = 'Nơi lưu giữ mọi kỷ lục của clan.';
   let CLAN_LOGO = null;
@@ -46,11 +78,11 @@ const SUPABASE_ANON_KEY = 'sb_publishable_VMnDyqCCckqzUzTr8kjfUQ_f4gzrUcT';
 
 <script>
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-let currentUser = null;   // auth.users record
-let currentProfile = null; // profiles record (role, ingame_name...)
+let currentUser = null;
+let currentProfile = null;
 const app = document.getElementById('app');
 
-// ---------- helpers thời gian: xem lib/utils/format-time.ts ở đợt trước ----------
+// ---------- helpers ----------
 function msToStr(ms){
   if(!Number.isInteger(ms)||ms<0) return '--:--.---';
   const m=Math.floor(ms/60000), s=Math.floor((ms%60000)/1000), mm=ms%1000;
@@ -68,7 +100,7 @@ function parseTimeStr(str){
 function esc(s){ return (s??'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg, type='ok'){
   const el=document.createElement('div');
-  el.className='fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-lg';
+  el.className='fixed bottom-5 left-1/2 -translate-x-1/2 sm:left-auto sm:right-5 sm:translate-x-0 z-[100] px-4 py-3 rounded-xl text-sm font-medium shadow-lg max-w-[90vw]';
   el.style.background = type==='ok' ? 'var(--ok)' : 'var(--err)';
   el.style.color='#0a0a0a';
   el.textContent=msg;
@@ -77,7 +109,7 @@ function toast(msg, type='ok'){
 }
 function stars(n){ return '★'.repeat(n) + '☆'.repeat(7-n); }
 
-// ---------- Storage: upload ảnh thật lên Supabase Storage ----------
+// ---------- Storage ----------
 const MAX_UPLOAD_MB = 10;
 const ALLOWED_TYPES = ['image/png','image/jpeg','image/jpg','image/webp'];
 async function uploadImage(bucket, file, pathPrefix){
@@ -88,7 +120,6 @@ async function uploadImage(bucket, file, pathPrefix){
   const { error } = await sb.storage.from(bucket).upload(path, file, { upsert:false });
   if(error) throw new Error('Lỗi tải ảnh lên: '+error.message);
   if(bucket==='evidence'){
-    // bucket private -> lấy signed URL (7 ngày) để lưu tham chiếu xem lại được
     const { data, error:e2 } = await sb.storage.from(bucket).createSignedUrl(path, 60*60*24*7);
     if(e2) throw e2;
     return { path, url: data.signedUrl };
@@ -105,19 +136,19 @@ function filePreview(inputEl, imgEl){
   });
 }
 
-// ---------- clan_settings: tên, logo, màu — áp dụng toàn site ----------
+// ---------- clan_settings ----------
 async function loadClanSettings(){
   const { data } = await sb.from('clan_settings').select('*').eq('id',true).single();
   if(!data) return;
   CLAN_NAME = data.clan_name;
-CLAN_SLOGAN = data.slogan;
-CLAN_LOGO = data.logo_url;
+  CLAN_SLOGAN = data.slogan;
+  CLAN_LOGO = data.logo_url;
   document.title = 'FUNMORDES RECORD LEADERBOARD';
   document.documentElement.style.setProperty('--blue', data.color_primary);
   document.documentElement.style.setProperty('--orange', data.color_accent);
 }
 
-// ---------- router ảo (hash-based) ----------
+// ---------- router ----------
 const routes = {};
 function route(pattern, handler){ routes[pattern]=handler; }
 function navigate(hash){ window.location.hash = hash; }
@@ -129,87 +160,124 @@ async function resolveRoute(){
     if(m){
       const params={}; keys.forEach((k,i)=>params[k]=decodeURIComponent(m[i+1]));
       app.innerHTML = '<div class="p-10 text-center text-[--tx2]">Đang tải...</div>';
-      try{ await handler_wrap(routes[pattern], params); }
+      try{ await routes[pattern](params); }
       catch(e){ app.innerHTML = `<div class="p-10 text-center text-[--err]">Lỗi: ${esc(e.message)}</div>`; }
       return;
     }
   }
   render404();
 }
-async function handler_wrap(fn, params){ await fn(params); }
 window.addEventListener('hashchange', resolveRoute);
+
+// ---------- MOBILE MENU ----------
+function toggleMobileMenu(){
+  const menu = document.getElementById('mobile-menu');
+  if(menu) menu.classList.toggle('open');
+  document.body.style.overflow = menu?.classList.contains('open') ? 'hidden' : '';
+}
+function closeMobileMenu(){
+  const menu = document.getElementById('mobile-menu');
+  if(menu) menu.classList.remove('open');
+  document.body.style.overflow = '';
+}
 
 // ---------- layout ----------
 function layout(content){
   const isAdmin = currentProfile?.role==='admin' || currentProfile?.role==='moderator';
-  app.innerHTML = `
+  const isSuperAdmin = currentProfile?.role==='admin';
   
+  app.innerHTML = `
 <header class="sticky top-0 z-40 border-b"
-  style="border-color:var(--bd);background:rgba(8,11,18,.9);backdrop-filter:blur(8px)">
+  style="border-color:var(--bd);background:rgba(8,11,18,.92);backdrop-filter:blur(10px)">
+  <div class="header-inner w-full max-w-7xl mx-auto grid grid-cols-[auto_1fr_auto] md:grid-cols-[1fr_auto_1fr] items-center px-3 md:px-4 h-[64px] md:h-[110px] gap-2">
 
-  <div class="w-full grid grid-cols-[1fr_auto_1fr] items-center px-4 h-[120px]">
-
-    <!-- LOGO VÀ TÊN CLAN BÊN TRÁI -->
-    <div class="flex items-center gap-3 cursor-pointer min-w-0"
-         onclick="navigate('/')">
-
+    <!-- LOGO + TÊN -->
+    <div class="flex items-center gap-2 md:gap-3 cursor-pointer min-w-0" onclick="navigate('/');closeMobileMenu()">
       ${CLAN_LOGO
-        ? `<img src="${esc(CLAN_LOGO)}"
-             class="h-20 w-25 rounded object-contain shrink-0">`
-        : '<span class="text-5xl shrink-0">🏁</span>'}
-
-      <span class="text-3xl font-extrabold whitespace-nowrap"
-            style="color:var(--blue)">
+        ? `<img src="${esc(CLAN_LOGO)}" class="h-10 w-10 md:h-16 md:w-16 rounded object-contain shrink-0">`
+        : '<span class="text-2xl md:text-4xl shrink-0">🏁</span>'}
+      <span class="text-base md:text-2xl font-extrabold whitespace-nowrap truncate" style="color:var(--blue)">
         ${esc(CLAN_NAME)}
       </span>
     </div>
 
-    <!-- MENU Ở GIỮA, DỊCH TRÁI NHẸ -->
-    <nav class="hidden md:flex items-center justify-center gap-5
-                text-xl font-bold whitespace-nowrap text-[--tx2]"
-         style="transform:translateX(-20px)">
-
+    <!-- MENU DESKTOP -->
+    <nav class="hidden md:flex items-center justify-center gap-5 text-lg font-bold whitespace-nowrap text-[--tx2]">
       <a onclick="navigate('/')" class="hover:text-white">Trang chủ</a>
-
       <a onclick="navigate('/maps')" class="hover:text-white">Tất cả map</a>
-
       <a onclick="navigate('/leaderboard')" class="hover:text-white">Bảng xếp hạng</a>
-
       ${isAdmin?'<a onclick="navigate(\'/admin/records\')" class="hover:text-white" style="color:var(--orange)">Duyệt REC</a><a onclick="navigate(\'/admin/members\')" class="hover:text-white" style="color:var(--orange)">Thành viên</a>':''}
-
-      ${currentProfile?.role==='admin'?'<a onclick="navigate(\'/admin/settings\')" class="hover:text-white" style="color:var(--orange)">Cài đặt</a>':''}
-
+      ${isSuperAdmin?'<a onclick="navigate(\'/admin/settings\')" class="hover:text-white" style="color:var(--orange)">Cài đặt</a>':''}
     </nav>
 
-    <!-- NÚT ĐĂNG NHẬP BÊN PHẢI -->
-    <div class="flex items-center justify-end gap-3 whitespace-nowrap">
-
-      ${currentUser
-        ? `<a onclick="navigate('/submit-record')" class="btn-p text-sm">Gửi kỷ lục</a>
-           <a onclick="navigate('/my-records')" class="text-sm text-[--tx2] hover:text-white">${esc(currentProfile?.ingame_name||'Tôi')}</a>
-           <a onclick="doLogout()" class="text-sm text-[--tx2] hover:text-white">Đăng xuất</a>`
-        : `<a onclick="navigate('/login')" class="btn-s text-sm">Đăng nhập</a>`}
-
+    <!-- RIGHT: Desktop auth / Mobile hamburger -->
+    <div class="flex items-center justify-end gap-2 whitespace-nowrap">
+      <!-- Desktop auth -->
+      <div class="hidden md:flex items-center gap-3">
+        ${currentUser
+          ? `<a onclick="navigate('/submit-record')" class="btn-p text-sm">Gửi kỷ lục</a>
+             <a onclick="navigate('/my-records')" class="text-sm text-[--tx2] hover:text-white">${esc(currentProfile?.ingame_name||'Tôi')}</a>
+             <a onclick="doLogout()" class="text-sm text-[--tx2] hover:text-white">Đăng xuất</a>`
+          : `<a onclick="navigate('/login')" class="btn-s text-sm">Đăng nhập</a>`}
+      </div>
+      <!-- Mobile hamburger -->
+      <button class="md:hidden p-2 rounded-lg" style="color:var(--tx)" onclick="toggleMobileMenu()" aria-label="Menu">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
     </div>
-
   </div>
 </header>
-  <main class="max-w-7xl mx-auto px-4 py-8">${content}</main>
-  <footer class="border-t mt-16 py-8 text-center text-sm text-[--tx2]" style="border-color:var(--bd)">
-    ${esc(CLAN_NAME)} — ${esc(CLAN_SLOGAN)} · v0.1 (demo)
-  </footer>`;
+
+<!-- MOBILE MENU OVERLAY -->
+<div id="mobile-menu" class="mobile-menu md:hidden">
+  <div class="flex justify-between items-center mb-6">
+    <span class="text-xl font-extrabold" style="color:var(--blue)">${esc(CLAN_NAME)}</span>
+    <button onclick="closeMobileMenu()" class="p-2 rounded-lg" style="color:var(--tx)" aria-label="Đóng">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  </div>
+  <nav class="flex-1 overflow-y-auto">
+    <a onclick="navigate('/');closeMobileMenu()">🏠 Trang chủ</a>
+    <a onclick="navigate('/maps');closeMobileMenu()">🗺️ Tất cả map</a>
+    <a onclick="navigate('/leaderboard');closeMobileMenu()">🏆 Bảng xếp hạng</a>
+    ${currentUser?`<a onclick="navigate('/submit-record');closeMobileMenu()">📝 Gửi kỷ lục</a>
+      <a onclick="navigate('/my-records');closeMobileMenu()">📋 Kỷ lục của tôi</a>`:''}
+    ${isAdmin?`<a onclick="navigate('/admin/records');closeMobileMenu()">✅ Duyệt REC</a>
+      <a onclick="navigate('/admin/members');closeMobileMenu()">👥 Thành viên</a>`:''}
+    ${isSuperAdmin?`<a onclick="navigate('/admin/settings');closeMobileMenu()">⚙️ Cài đặt</a>`:''}
+  </nav>
+  <div class="pt-4 border-t" style="border-color:var(--bd)">
+    ${currentUser
+      ? `<div class="text-sm text-[--tx2] mb-3">Xin chào, <b style="color:var(--tx)">${esc(currentProfile?.ingame_name||'bạn')}</b></div>
+         <button onclick="doLogout();closeMobileMenu()" class="btn-s w-full">Đăng xuất</button>`
+      : `<button onclick="navigate('/login');closeMobileMenu()" class="btn-p w-full">Đăng nhập</button>`}
+  </div>
+</div>
+
+<main class="max-w-7xl mx-auto px-4 py-6 md:py-8">${content}</main>
+
+<footer class="border-t mt-12 md:mt-16 py-6 md:py-8 text-center text-xs md:text-sm text-[--tx2] px-4" style="border-color:var(--bd)">
+  ${esc(CLAN_NAME)} — ${esc(CLAN_SLOGAN)} · v0.1
+</footer>`;
+
+  // Đóng menu khi resize lên desktop
+  window.addEventListener('resize', ()=>{ if(window.innerWidth>=768) closeMobileMenu(); });
 }
 
 function render404(){
-  layout(`<div class="text-center py-24">
-    <div class="text-6xl mb-4">🏎️💨</div>
-    <h1 class="text-3xl font-extrabold mb-2">404 — Lạc đường đua</h1>
+  layout(`<div class="text-center py-16 md:py-24">
+    <div class="text-5xl md:text-6xl mb-4">🏎️💨</div>
+    <h1 class="text-2xl md:text-3xl font-extrabold mb-2">404 — Lạc đường đua</h1>
     <p class="text-[--tx2] mb-6">Trang bạn tìm không tồn tại.</p>
     <a onclick="navigate('/')" class="btn-p">Về trang chủ</a>
   </div>`);
 }
 
-// ---------- AUTH (username + password; synthetic internal email, no email entry) ----------
+// ---------- AUTH ----------
 async function loadSession(){
   const { data:{ session } } = await sb.auth.getSession();
   currentUser = session?.user || null;
@@ -222,8 +290,8 @@ async function loadSession(){
 async function doLogout(){ await sb.auth.signOut(); await loadSession(); navigate('/'); }
 
 route('/login', async ()=>{
-  layout(`<div class="max-w-md mx-auto card p-8 mt-8">
-    <h1 class="text-2xl font-extrabold mb-6">Đăng nhập</h1>
+  layout(`<div class="max-w-md mx-auto card p-6 md:p-8 mt-4 md:mt-8">
+    <h1 class="text-xl md:text-2xl font-extrabold mb-6">Đăng nhập</h1>
     <form id="f-login" class="space-y-4">
       <div><label class="text-sm text-[--tx2]">Username</label><input required name="username" minlength="3" maxlength="32" class="w-full mt-1"></div>
       <div><label class="text-sm text-[--tx2]">Mật khẩu</label><input required type="password" name="password" class="w-full mt-1"></div>
@@ -242,8 +310,8 @@ route('/login', async ()=>{
 });
 
 route('/register', async ()=>{
-  layout(`<div class="max-w-md mx-auto card p-8 mt-8">
-    <h1 class="text-2xl font-extrabold mb-6">Đăng ký thành viên</h1>
+  layout(`<div class="max-w-md mx-auto card p-6 md:p-8 mt-4 md:mt-8">
+    <h1 class="text-xl md:text-2xl font-extrabold mb-6">Đăng ký thành viên</h1>
     <form id="f-reg" class="space-y-4">
       <div><label class="text-sm text-[--tx2]">Username</label><input required name="username" minlength="3" maxlength="32" class="w-full mt-1"></div>
       <div><label class="text-sm text-[--tx2]">Tên ingame</label><input required name="ingame_name" class="w-full mt-1"></div>
@@ -262,7 +330,7 @@ route('/register', async ()=>{
       id: data.user.id, username: fd.get('username'), ingame_name: fd.get('ingame_name')
     });
     if(perr) return toast('Lỗi tạo hồ sơ: '+perr.message,'err');
-    toast('Đăng ký thành công! Kiểm tra email để xác nhận (nếu bật).');
+    toast('Đăng ký thành công!');
     navigate('/login');
   };
 });
@@ -276,32 +344,35 @@ route('/', async ()=>{
     sb.from('records').select('time_ms,submitted_at,maps(name,slug),profiles(ingame_name)').eq('status','approved').order('submitted_at',{ascending:false}).limit(5)
   ]);
   layout(`
-    <section class="rounded-2xl p-10 mb-10 card" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
-      <h1 class="text-4xl md:text-5xl font-extrabold mb-2">RACE. RECORD. <span style="color:var(--orange)">DOMINATE.</span></h1>
-      <p class="text-lg text-[--tx2] mb-6">${esc(CLAN_SLOGAN)}</p>
-      <div class="flex gap-3">
+    <section class="rounded-2xl p-6 md:p-10 mb-6 md:mb-10 card" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
+      <h1 class="text-2xl md:text-5xl font-extrabold mb-2 leading-tight">RACE. RECORD. <span style="color:var(--orange)">DOMINATE.</span></h1>
+      <p class="text-sm md:text-lg text-[--tx2] mb-5 md:mb-6">${esc(CLAN_SLOGAN)}</p>
+      <div class="flex flex-col sm:flex-row gap-3">
         <a onclick="navigate('/maps')" class="btn-p">Khám phá bản đồ</a>
         <a onclick="navigate('/submit-record')" class="btn-s">Gửi kỷ lục</a>
       </div>
     </section>
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-10">
-      ${statCard('Tổng số bản đồ', mapCount??0)}
+    <div class="grid grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-10">
+      ${statCard('Bản đồ', mapCount??0)}
       ${statCard('Thành viên', memberCount??0)}
-      ${statCard('Kỷ lục đã duyệt', recCount??0)}
+      ${statCard('Kỷ lục', recCount??0)}
     </div>
-    <h2 class="text-xl font-bold mb-4">Kỷ lục mới nhất</h2>
+    <h2 class="text-lg md:text-xl font-bold mb-4">Kỷ lục mới nhất</h2>
     <div class="space-y-2">
       ${(latest||[]).length ? latest.map(r=>`
-        <div class="card p-4 flex justify-between items-center cursor-pointer" onclick="navigate('/map/${esc(r.maps.slug)}')">
-          <div><span class="font-semibold">${esc(r.maps.name)}</span> <span class="text-[--tx2]">— ${esc(r.profiles.ingame_name)}</span></div>
-          <div class="font-mono" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
+        <div class="card p-3 md:p-4 flex justify-between items-center gap-3 cursor-pointer" onclick="navigate('/map/${esc(r.maps.slug)}')">
+          <div class="min-w-0">
+            <div class="font-semibold truncate">${esc(r.maps.name)}</div>
+            <div class="text-xs md:text-sm text-[--tx2] truncate">${esc(r.profiles.ingame_name)}</div>
+          </div>
+          <div class="font-mono text-sm md:text-base shrink-0" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
         </div>`).join('') : emptyState('Chưa có kỷ lục nào được duyệt.')}
     </div>`);
 });
-function statCard(label,val){ return `<div class="card p-5"><div class="text-3xl font-extrabold" style="color:var(--blue)">${val}</div><div class="text-sm text-[--tx2] mt-1">${esc(label)}</div></div>`; }
-function emptyState(msg){ return `<div class="card p-10 text-center text-[--tx2]">${esc(msg)}</div>`; }
+function statCard(label,val){ return `<div class="card p-3 md:p-5 text-center md:text-left"><div class="text-xl md:text-3xl font-extrabold" style="color:var(--blue)">${val}</div><div class="text-xs md:text-sm text-[--tx2] mt-1">${esc(label)}</div></div>`; }
+function emptyState(msg){ return `<div class="card p-8 md:p-10 text-center text-[--tx2] text-sm md:text-base">${esc(msg)}</div>`; }
 
-// ---------- DANH SÁCH MAP + LỌC ĐỘ KHÓ ----------
+// ---------- MAPS ----------
 route('/maps', async ()=> renderMaps(null));
 route('/maps/difficulty/:star', async (p)=> renderMaps(+p.star));
 async function renderMaps(difficulty){
@@ -310,7 +381,6 @@ async function renderMaps(difficulty){
   const { data: maps, error } = await q;
   if(error) throw error;
 
-  // đếm REC đã duyệt + thời gian nhanh nhất mỗi map (dùng view map_rankings)
   const ids = maps.map(m=>m.id);
   let bestByMap = {};
   if(ids.length){
@@ -320,56 +390,56 @@ async function renderMaps(difficulty){
 
   const filters=[null,2,3,4,5,6,7];
   layout(`
-    <div class="flex flex-wrap gap-2 mb-6">
+    <div class="flex flex-wrap gap-2 mb-4 md:mb-6 overflow-x-auto pb-1">
       ${filters.map(f=>`<a onclick="navigate('${f?'/maps/difficulty/'+f:'/maps'}')"
-        class="btn-s text-sm" style="${(difficulty===f)?'background:var(--blue);color:#0a0a0a;border-color:var(--blue)':''}">
+        class="btn-s text-xs md:text-sm shrink-0" style="${(difficulty===f)?'background:var(--blue);color:#0a0a0a;border-color:var(--blue)':''}">
         ${f?f+'⭐':'Tất cả'}</a>`).join('')}
     </div>
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+    <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-5">
       ${maps.length ? maps.map(m=>mapCard(m,bestByMap[m.id])).join('') : emptyState('Không có map nào ở mức độ khó này.')}
     </div>`);
 }
 function mapCard(m,best){
   return `<div class="card overflow-hidden cursor-pointer group" onclick="navigate('/map/${esc(m.slug)}')">
     <div class="aspect-video overflow-hidden relative" style="background:var(--bg2)">
-      ${m.thumbnail_url?`<img src="${esc(m.thumbnail_url)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">`:`<div class="w-full h-full flex items-center justify-center text-4xl">🏁</div>`}
-      <span class="badge absolute top-2 left-2" style="background:var(--card);color:var(--gold)">${stars(m.difficulty)}</span>
+      ${m.thumbnail_url?`<img src="${esc(m.thumbnail_url)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">`:`<div class="w-full h-full flex items-center justify-center text-3xl md:text-4xl">🏁</div>`}
+      <span class="badge absolute top-1.5 left-1.5 md:top-2 md:left-2" style="background:rgba(0,0,0,.7);color:var(--gold)">${stars(m.difficulty)}</span>
     </div>
-    <div class="p-4">
-      <div class="font-bold mb-1">${esc(m.name)}</div>
-      <div class="text-sm text-[--tx2]">${best? `${esc(best.profiles.ingame_name)} · <span class="font-mono" style="color:var(--gold)">${msToStr(best.time_ms)}</span>` : 'Chưa có kỷ lục'}</div>
+    <div class="p-2.5 md:p-4">
+      <div class="font-bold text-sm md:text-base mb-1 truncate">${esc(m.name)}</div>
+      <div class="text-xs md:text-sm text-[--tx2] truncate">${best? `${esc(best.profiles.ingame_name)} · <span class="font-mono" style="color:var(--gold)">${msToStr(best.time_ms)}</span>` : 'Chưa có kỷ lục'}</div>
     </div>
   </div>`;
 }
 
-// ---------- CHI TIẾT MAP + LEADERBOARD ----------
+// ---------- MAP DETAIL ----------
 route('/map/:slug', async (p)=>{
   const { data: map, error } = await sb.from('maps').select('*').eq('slug',p.slug).single();
   if(error || !map) return render404();
   const { data: ranks } = await sb.from('map_rankings').select('rank,time_ms,profiles(username,ingame_name,avatar_url)').eq('map_id',map.id).order('rank').limit(50);
   const top3 = (ranks||[]).slice(0,3);
   layout(`
-    <div class="card p-8 mb-8">
-      <div class="flex justify-between items-start flex-wrap gap-4">
-        <div>
-          <div class="mb-2" style="color:var(--gold)">${stars(map.difficulty)}</div>
-          <h1 class="text-3xl font-extrabold">${esc(map.name)}</h1>
-          <p class="text-[--tx2] mt-2 max-w-xl">${esc(map.description||'')}</p>
+    <div class="card p-5 md:p-8 mb-5 md:mb-8">
+      <div class="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
+        <div class="min-w-0">
+          <div class="mb-2 text-sm" style="color:var(--gold)">${stars(map.difficulty)}</div>
+          <h1 class="text-xl md:text-3xl font-extrabold">${esc(map.name)}</h1>
+          <p class="text-sm md:text-base text-[--tx2] mt-2 max-w-xl">${esc(map.description||'')}</p>
         </div>
-        ${currentUser?`<a onclick="navigate('/submit-record')" class="btn-p">Gửi REC cho map này</a>`:`<a onclick="navigate('/login')" class="btn-s">Đăng nhập để gửi REC</a>`}
+        ${currentUser?`<a onclick="navigate('/submit-record')" class="btn-p text-sm shrink-0">Gửi REC</a>`:`<a onclick="navigate('/login')" class="btn-s text-sm shrink-0">Đăng nhập</a>`}
       </div>
     </div>
-    ${top3.length? `<div class="grid grid-cols-3 gap-4 mb-8">${top3.map((r,i)=>podium(r,i+1)).join('')}</div>`:''}
+    ${top3.length? `<div class="podium-grid grid grid-cols-3 gap-3 md:gap-4 mb-5 md:mb-8">${top3.map((r,i)=>podium(r,i+1)).join('')}</div>`:''}
     <div class="card overflow-hidden">
-      <table class="w-full text-sm">
+      <table class="resp-table w-full text-sm">
         <thead><tr class="text-left text-[--tx2] border-b" style="border-color:var(--bd)">
           <th class="p-3">Hạng</th><th class="p-3">Thành viên</th><th class="p-3">Thời gian</th>
         </tr></thead>
         <tbody>
           ${(ranks||[]).map(r=>`<tr class="border-b" style="border-color:var(--bd)">
-            <td class="p-3 font-bold">${r.rank<=3?['🥇','🥈','🥉'][r.rank-1]:r.rank}</td>
-            <td class="p-3">${esc(r.profiles.ingame_name)}</td>
-            <td class="p-3 font-mono" style="color:var(--gold)">${msToStr(r.time_ms)}</td>
+            <td class="p-3 font-bold" data-label="Hạng">${r.rank<=3?['🥇','🥈','🥉'][r.rank-1]:r.rank}</td>
+            <td class="p-3" data-label="Thành viên">${esc(r.profiles.ingame_name)}</td>
+            <td class="p-3 font-mono" data-label="Thời gian" style="color:var(--gold)">${msToStr(r.time_ms)}</td>
           </tr>`).join('') || `<tr><td class="p-6 text-center text-[--tx2]" colspan="3">Chưa có kỷ lục nào được duyệt cho map này.</td></tr>`}
         </tbody>
       </table>
@@ -377,20 +447,20 @@ route('/map/:slug', async (p)=>{
 });
 function podium(r,pos){
   const medal=['🥇','🥈','🥉'][pos-1];
-  return `<div class="card p-5 text-center" style="order:${pos===1?0:pos}">
-    <div class="text-3xl mb-1">${medal}</div>
-    <div class="font-bold">${esc(r.profiles.ingame_name)}</div>
-    <div class="font-mono text-sm" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
+  return `<div class="card p-3 md:p-5 text-center">
+    <div class="text-2xl md:text-3xl mb-1">${medal}</div>
+    <div class="font-bold text-sm md:text-base truncate">${esc(r.profiles.ingame_name)}</div>
+    <div class="font-mono text-xs md:text-sm" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
   </div>`;
 }
 
-// ---------- GỬI REC ----------
+// ---------- SUBMIT ----------
 route('/submit-record', async ()=>{
   if(!currentUser){ toast('Vui lòng đăng nhập trước.','err'); return navigate('/login'); }
   const { data: maps } = await sb.from('maps').select('id,name,difficulty').eq('is_active',true).order('name');
   layout(`
-    <div class="max-w-lg mx-auto card p-8">
-      <h1 class="text-2xl font-extrabold mb-1">Gửi kỷ lục</h1>
+    <div class="max-w-lg mx-auto card p-5 md:p-8">
+      <h1 class="text-xl md:text-2xl font-extrabold mb-1">Gửi kỷ lục</h1>
       <p class="text-sm text-[--tx2] mb-6">Gửi với tư cách: <b>${esc(currentProfile?.ingame_name)}</b></p>
       <form id="f-rec" class="space-y-4">
         <div><label class="text-sm text-[--tx2]">Map</label>
@@ -400,18 +470,18 @@ route('/submit-record', async ()=>{
           </select>
         </div>
         <div><label class="text-sm text-[--tx2]">Thời gian (MM:SS.mmm)</label>
-          <input required name="time_str" placeholder="01:25.350" class="w-full mt-1 font-mono">
+          <input required name="time_str" placeholder="01:25.350" class="w-full mt-1 font-mono" inputmode="numeric">
         </div>
-        <div><label class="text-sm text-[--tx2]">Ảnh bằng chứng (PNG/JPG/WEBP, tối đa ${MAX_UPLOAD_MB}MB)</label>
-          <input required type="file" name="evidence_file" id="evidence_file" accept="image/png,image/jpeg,image/webp" class="w-full mt-1">
+        <div><label class="text-sm text-[--tx2]">Ảnh bằng chứng (tối đa ${MAX_UPLOAD_MB}MB)</label>
+          <input required type="file" name="evidence_file" id="evidence_file" accept="image/png,image/jpeg,image/webp" class="w-full mt-1 text-sm">
           <img id="evidence_preview" class="hidden mt-2 max-h-48 rounded-lg border" style="border-color:var(--bd)">
         </div>
         <div><label class="text-sm text-[--tx2]">Ghi chú (không bắt buộc)</label>
           <textarea name="note" maxlength="500" class="w-full mt-1" rows="2"></textarea>
         </div>
         <label class="flex items-start gap-2 text-sm text-[--tx2]">
-          <input required type="checkbox" name="confirm" class="mt-1">
-          Tôi xác nhận thời gian và bằng chứng cung cấp là chính xác.
+          <input required type="checkbox" name="confirm" class="mt-1 shrink-0">
+          <span>Tôi xác nhận thời gian và bằng chứng cung cấp là chính xác.</span>
         </label>
         <button class="btn-p w-full" type="submit">Gửi kỷ lục</button>
       </form>
@@ -426,14 +496,13 @@ route('/submit-record', async ()=>{
       const file = fd.get('evidence_file');
       if(!file || !file.size) throw new Error('Vui lòng chọn ảnh bằng chứng.');
       btn.textContent='Đang tải ảnh...';
-      // lưu theo thư mục riêng của từng user -> khớp policy "evidence_insert_own"
       const { path } = await uploadImage('evidence', file, currentUser.id);
       btn.textContent='Đang gửi...';
       const { error } = await sb.from('records').insert({
         user_id: currentUser.id,
         map_id: fd.get('map_id'),
         time_ms,
-        evidence_url: path, // lưu path trong bucket; URL xem lại được tạo signed URL khi cần
+        evidence_url: path,
         note: fd.get('note') || null,
         status: 'pending'
       });
@@ -444,35 +513,35 @@ route('/submit-record', async ()=>{
   };
 });
 
-// ---------- REC CỦA TÔI ----------
+// ---------- MY RECORDS ----------
 route('/my-records', async ()=>{
   if(!currentUser) return navigate('/login');
   const { data: recs } = await sb.from('records').select('*,maps(name,slug)').eq('user_id',currentUser.id).order('submitted_at',{ascending:false});
   const statusColor = {pending:'var(--gold)',approved:'var(--ok)',rejected:'var(--err)'};
   const statusLabel = {pending:'Đang chờ duyệt',approved:'Đã duyệt',rejected:'Bị từ chối'};
-  layout(`<h1 class="text-2xl font-extrabold mb-6">Kỷ lục của tôi</h1>
+  layout(`<h1 class="text-xl md:text-2xl font-extrabold mb-6">Kỷ lục của tôi</h1>
     <div class="space-y-2">
       ${(recs||[]).length ? recs.map(r=>`
-        <div class="card p-4 flex justify-between items-center">
-          <div>
-            <div class="font-semibold">${esc(r.maps.name)}</div>
-            <div class="text-sm text-[--tx2]">${new Date(r.submitted_at).toLocaleString('vi-VN')}</div>
-            ${r.status==='rejected'&&r.rejection_reason?`<div class="text-sm mt-1" style="color:var(--err)">Lý do: ${esc(r.rejection_reason)}</div>`:''}
+        <div class="card p-3 md:p-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+          <div class="min-w-0">
+            <div class="font-semibold truncate">${esc(r.maps.name)}</div>
+            <div class="text-xs md:text-sm text-[--tx2]">${new Date(r.submitted_at).toLocaleString('vi-VN')}</div>
+            ${r.status==='rejected'&&r.rejection_reason?`<div class="text-xs md:text-sm mt-1" style="color:var(--err)">Lý do: ${esc(r.rejection_reason)}</div>`:''}
           </div>
-          <div class="text-right">
-            <div class="font-mono" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
+          <div class="flex sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0">
+            <div class="font-mono text-sm md:text-base" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
             <span class="badge" style="background:var(--bg2);color:${statusColor[r.status]}">${statusLabel[r.status]}</span>
           </div>
         </div>`).join('') : emptyState('Bạn chưa gửi kỷ lục nào.')}
     </div>`);
 });
 
-// ---------- ADMIN: cài đặt clan (logo, tên, màu) ----------
+// ---------- ADMIN: settings ----------
 route('/admin/settings', async ()=>{
   if(currentProfile?.role!=='admin'){ toast('Bạn không có quyền truy cập.','err'); return navigate('/'); }
   const { data: cfg } = await sb.from('clan_settings').select('*').eq('id',true).single();
-  layout(`<div class="max-w-lg mx-auto card p-8">
-    <h1 class="text-2xl font-extrabold mb-6">Cài đặt clan</h1>
+  layout(`<div class="max-w-lg mx-auto card p-5 md:p-8">
+    <h1 class="text-xl md:text-2xl font-extrabold mb-6">Cài đặt clan</h1>
     <form id="f-settings" class="space-y-4">
       <div><label class="text-sm text-[--tx2]">Tên clan</label>
         <input name="clan_name" value="${esc(cfg.clan_name)}" required class="w-full mt-1"></div>
@@ -480,7 +549,7 @@ route('/admin/settings', async ()=>{
         <input name="slogan" value="${esc(cfg.slogan)}" class="w-full mt-1"></div>
       <div><label class="text-sm text-[--tx2]">Logo hiện tại</label><br>
         ${cfg.logo_url?`<img src="${esc(cfg.logo_url)}" class="h-16 w-16 rounded object-cover my-2">`:'<p class="text-sm text-[--tx2] my-2">Chưa có logo</p>'}
-        <input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp" class="w-full">
+        <input type="file" name="logo_file" accept="image/png,image/jpeg,image/webp" class="w-full text-sm">
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-sm text-[--tx2]">Màu chính</label>
@@ -515,13 +584,13 @@ route('/admin/settings', async ()=>{
   };
 });
 
-// ---------- ADMIN: quản lý thành viên & phân quyền ----------
+// ---------- ADMIN: members ----------
 route('/admin/members', async ()=>{
-  if(!(currentProfile?.role==='admin')){ toast('Chỉ admin mới có quyền đổi vai trò thành viên.','err'); return navigate('/'); }
+  if(!(currentProfile?.role==='admin')){ toast('Chỉ admin mới có quyền.','err'); return navigate('/'); }
   const { data: members } = await sb.from('profiles').select('*').order('joined_at');
-  layout(`<h1 class="text-2xl font-extrabold mb-6">Quản lý thành viên</h1>
+  layout(`<h1 class="text-xl md:text-2xl font-extrabold mb-6">Quản lý thành viên</h1>
     <div class="card overflow-hidden">
-      <table class="w-full text-sm">
+      <table class="resp-table w-full text-sm">
         <thead><tr class="text-left text-[--tx2] border-b" style="border-color:var(--bd)">
           <th class="p-3">Thành viên</th><th class="p-3">Vai trò</th><th class="p-3">Trạng thái</th><th class="p-3"></th>
         </tr></thead>
@@ -532,8 +601,6 @@ route('/admin/members', async ()=>{
     </div>`);
   document.querySelectorAll('.role-select').forEach(sel=>{
     sel.onchange = async ()=>{
-      // select đã bị disabled cho chính mình ở trên; RLS (profiles_update_own_limited)
-      // cũng chặn lại ở tầng database nếu ai đó cố bypass UI.
       const { error } = await sb.from('profiles').update({ role: sel.value }).eq('id', sel.dataset.uid);
       if(error) return toast(error.message,'err');
       toast('Đã cập nhật vai trò.');
@@ -552,16 +619,18 @@ route('/admin/members', async ()=>{
 function memberRow(m){
   const isSelf = currentUser && m.id===currentUser.id;
   return `<tr class="border-b" style="border-color:var(--bd)">
-    <td class="p-3">
-      <div class="font-semibold">${esc(m.ingame_name)}</div>
-      <div class="text-xs text-[--tx2]">@${esc(m.username)}</div>
+    <td class="p-3" data-label="Thành viên">
+      <div>
+        <div class="font-semibold">${esc(m.ingame_name)}</div>
+        <div class="text-xs text-[--tx2]">@${esc(m.username)}</div>
+      </div>
     </td>
-    <td class="p-3">
+    <td class="p-3" data-label="Vai trò">
       <select class="role-select" data-uid="${m.id}" ${isSelf?'disabled title="Không thể tự đổi vai trò"':''}>
         ${['member','moderator','admin'].map(r=>`<option value="${r}" ${m.role===r?'selected':''}>${r}</option>`).join('')}
       </select>
     </td>
-    <td class="p-3">
+    <td class="p-3" data-label="Trạng thái">
       <span class="badge" style="background:var(--bg2);color:${m.status==='active'?'var(--ok)':'var(--err)'}">${m.status==='active'?'Hoạt động':'Đã khóa'}</span>
     </td>
     <td class="p-3">
@@ -572,7 +641,7 @@ function memberRow(m){
   </tr>`;
 }
 
-// ---------- khởi động ----------
+// ---------- init ----------
 (async function init(){
   await loadClanSettings();
   await loadSession();
