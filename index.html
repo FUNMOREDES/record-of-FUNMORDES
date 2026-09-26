@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FUNMORDES RECORD LEADERBOARD</title>
+<title><meta property="og:title" content="FUNMORDES RECORD LEADERBOARD">
+<meta property="og:description" content="Bảng xếp hạng và lưu giữ kỷ lục đua xe của clan FUNMORDES.">
+<meta property="og:type" content="website">FUNMORDES RECORD LEADERBOARD</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -105,7 +107,7 @@ async function loadClanSettings(){
   const { data } = await sb.from('clan_settings').select('*').eq('id',true).single();
   if(!data) return;
   CLAN_NAME = data.clan_name; CLAN_SLOGAN = data.slogan; CLAN_LOGO = data.logo_url;
-  document.title = CLAN_NAME;
+  document.title = 'FUNMORDES RECORD LEADERBOARD';
   document.documentElement.style.setProperty('--blue', data.color_primary);
   document.documentElement.style.setProperty('--orange', data.color_accent);
 }
