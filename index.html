@@ -52,6 +52,20 @@
   .search-box .clear-btn{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);color:var(--tx2);cursor:pointer;padding:.25rem;border-radius:6px;display:none}
   .search-box .clear-btn:hover{background:var(--card-h);color:var(--tx)}
   .search-box.has-value .clear-btn{display:block}
+  /* Map combobox (cho gửi kỷ lục) */
+  .map-combobox{position:relative}
+  .map-combobox .cb-input{padding-left:2.5rem;padding-right:2.5rem;cursor:text}
+  .map-combobox .cb-icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--tx2);pointer-events:none}
+  .map-combobox .cb-clear{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);color:var(--tx2);cursor:pointer;padding:.25rem;border-radius:6px;display:none}
+  .map-combobox .cb-clear:hover{background:var(--card-h);color:var(--tx)}
+  .map-combobox.has-value .cb-clear{display:block}
+  .map-combobox .cb-list{position:absolute;top:calc(100% + 4px);left:0;right:0;max-height:280px;overflow-y:auto;background:var(--card);border:1px solid var(--bd);border-radius:12px;z-index:30;display:none;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .map-combobox.open .cb-list{display:block}
+  .map-combobox .cb-item{padding:.6rem .8rem;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:.5rem;border-bottom:1px solid var(--bd)}
+  .map-combobox .cb-item:last-child{border-bottom:none}
+  .map-combobox .cb-item:hover,.map-combobox .cb-item.active{background:var(--card-h)}
+  .map-combobox .cb-empty{padding:.8rem;text-align:center;color:var(--tx2);font-size:.875rem}
+  .map-combobox .cb-star{color:var(--gold);white-space:nowrap}
 </style>
 </head>
 <body>
@@ -754,18 +768,27 @@ function notifCard(n, isUnread){
 route('/submit-record', async (params)=>{
   if(!currentUser){ toast('Vui lòng đăng nhập trước.','err'); return navigate('/login'); }
   const presetSlug = params?._query?.map || null;
-  const { data: maps } = await sb.from('maps').select('id,name,difficulty,slug').eq('is_active',true).order('name');
-  const presetMapId = presetSlug ? (maps.find(m=>m.slug===presetSlug)?.id || '') : '';
+  const { data: maps } = await sb.from('maps').select('id,name,difficulty,slug').eq('is_active',true)
+    .order('difficulty',{ascending:false}).order('name',{ascending:true});
+  const presetMap = presetSlug ? (maps.find(m=>m.slug===presetSlug) || null) : null;
+
   layout(`
     <div class="max-w-lg mx-auto card p-4 md:p-8">
       <h1 class="text-xl md:text-2xl font-extrabold mb-1">Gửi kỷ lục</h1>
       <p class="text-sm text-[--tx2] mb-5 md:mb-6">Gửi với tư cách: <b>${esc(currentProfile?.ingame_name)}</b></p>
       <form id="f-rec" class="space-y-4">
-        <div><label class="text-sm text-[--tx2]">Map</label>
-          <select required name="map_id" class="mt-1">
-            <option value="">-- Chọn map --</option>
-            ${maps.map(m=>`<option value="${m.id}" ${m.id===presetMapId?'selected':''}>${esc(m.name)} (${m.difficulty}⭐)</option>`).join('')}
-          </select>
+        <div>
+          <label class="text-sm text-[--tx2]">Map</label>
+          <div class="map-combobox mt-1 ${presetMap?'has-value':''}" id="map-cb">
+            <span class="cb-icon">🔍</span>
+            <input type="text" class="cb-input" id="map-cb-input"
+              placeholder="Gõ để tìm map..." autocomplete="off"
+              value="${presetMap?esc(presetMap.name):''}">
+            <button type="button" class="cb-clear" id="map-cb-clear" title="Xóa">✕</button>
+            <input type="hidden" name="map_id" id="map-cb-value" value="${presetMap?presetMap.id:''}">
+            <div class="cb-list" id="map-cb-list"></div>
+          </div>
+          <p class="text-xs text-[--tx2] mt-1" id="map-cb-hint">${presetMap?`Đã chọn: <b class="text-white">${esc(presetMap.name)}</b> (${presetMap.difficulty}⭐)`:'Chưa chọn map'}</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div><label class="text-sm text-[--tx2]">Xe sử dụng</label>
@@ -789,12 +812,115 @@ route('/submit-record', async (params)=>{
         <button class="btn-p w-full" type="submit">Gửi kỷ lục</button>
       </form>
     </div>`);
+
   filePreview(document.getElementById('evidence_file'), document.getElementById('evidence_preview'));
+
+  // ---------- Map combobox logic ----------
+  const cb = document.getElementById('map-cb');
+  const cbInput = document.getElementById('map-cb-input');
+  const cbList = document.getElementById('map-cb-list');
+  const cbValue = document.getElementById('map-cb-value');
+  const cbClear = document.getElementById('map-cb-clear');
+  const cbHint = document.getElementById('map-cb-hint');
+  let highlightedIdx = -1;
+  let filtered = maps.slice();
+
+  function renderList(){
+    if(!filtered.length){
+      cbList.innerHTML = '<div class="cb-empty">Không tìm thấy map nào.</div>';
+      return;
+    }
+    cbList.innerHTML = filtered.map((m,i)=>`
+      <div class="cb-item ${i===highlightedIdx?'active':''}" data-idx="${i}">
+        <span class="truncate">${esc(m.name)}</span>
+        <span class="cb-star">${stars(m.difficulty)}</span>
+      </div>`).join('');
+    cbList.querySelectorAll('.cb-item').forEach(el=>{
+      el.addEventListener('mousedown', (e)=>{
+        e.preventDefault(); // tránh blur input trước khi chọn
+        const idx = +el.dataset.idx;
+        selectMap(filtered[idx]);
+      });
+    });
+  }
+
+  function filterList(){
+    const kw = removeDiacritics(cbInput.value.trim());
+    filtered = kw ? maps.filter(m=>removeDiacritics(m.name).includes(kw)) : maps.slice();
+    // Nếu input khớp y hệt tên map đang chọn thì vẫn hiện đủ
+    highlightedIdx = filtered.length ? 0 : -1;
+    renderList();
+  }
+
+  function openList(){
+    filterList();
+    cb.classList.add('open');
+  }
+  function closeList(){
+    cb.classList.remove('open');
+    highlightedIdx = -1;
+  }
+  function selectMap(m){
+    cbInput.value = m.name;
+    cbValue.value = m.id;
+    cb.classList.add('has-value');
+    cbHint.innerHTML = `Đã chọn: <b class="text-white">${esc(m.name)}</b> (${m.difficulty}⭐)`;
+    closeList();
+  }
+  function clearSelection(){
+    cbInput.value = '';
+    cbValue.value = '';
+    cb.classList.remove('has-value');
+    cbHint.textContent = 'Chưa chọn map';
+    closeList();
+    cbInput.focus();
+  }
+
+  cbInput.addEventListener('focus', openList);
+  cbInput.addEventListener('input', ()=>{
+    // Khi gõ, reset hidden value nếu text khác tên map đã chọn
+    cbValue.value = '';
+    cb.classList.toggle('has-value', cbInput.value.length > 0);
+    cbHint.textContent = 'Chưa chọn map';
+    openList();
+  });
+  cbInput.addEventListener('keydown', (e)=>{
+    if(!cb.classList.contains('open') && (e.key==='ArrowDown' || e.key==='ArrowUp')){
+      openList(); return;
+    }
+    if(e.key==='ArrowDown'){
+      e.preventDefault();
+      if(filtered.length){ highlightedIdx = (highlightedIdx+1) % filtered.length; renderList(); }
+    } else if(e.key==='ArrowUp'){
+      e.preventDefault();
+      if(filtered.length){ highlightedIdx = (highlightedIdx-1+filtered.length) % filtered.length; renderList(); }
+    } else if(e.key==='Enter'){
+      if(cb.classList.contains('open') && highlightedIdx>=0 && filtered[highlightedIdx]){
+        e.preventDefault();
+        selectMap(filtered[highlightedIdx]);
+      }
+    } else if(e.key==='Escape'){
+      closeList();
+    }
+  });
+  cbClear.addEventListener('mousedown', (e)=>{ e.preventDefault(); clearSelection(); });
+  cbClear.addEventListener('click', (e)=>{ e.preventDefault(); clearSelection(); });
+  // Đóng khi click ra ngoài
+  document.addEventListener('mousedown', (e)=>{
+    if(!cb.contains(e.target)) closeList();
+  });
+
+  // ---------- Submit ----------
   document.getElementById('f-rec').onsubmit = async (e)=>{
     e.preventDefault();
-    const btn=e.target.querySelector('button'); btn.disabled=true;
+    const btn=e.target.querySelector('button[type=submit]'); btn.disabled=true;
     try{
       const fd = new FormData(e.target);
+      const mapId = cbValue.value || fd.get('map_id');
+      if(!mapId) throw new Error('Vui lòng chọn map từ danh sách gợi ý.');
+      // Kiểm tra map id tồn tại trong danh sách
+      if(!maps.some(m=>m.id===mapId)) throw new Error('Map đã chọn không hợp lệ. Vui lòng chọn lại từ gợi ý.');
+
       const time_ms = parseTimeStr(fd.get('time_str'));
       const file = fd.get('evidence_file');
       if(!file || !file.size) throw new Error('Vui lòng chọn ảnh bằng chứng.');
@@ -803,7 +929,7 @@ route('/submit-record', async (params)=>{
       btn.textContent='Đang gửi...';
       const { error } = await sb.from('records').insert({
         user_id: currentUser.id,
-        map_id: fd.get('map_id'),
+        map_id: mapId,
         time_ms,
         car: fd.get('car') || null,
         pet: fd.get('pet') || null,
