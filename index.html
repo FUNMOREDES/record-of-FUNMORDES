@@ -87,6 +87,9 @@ let currentProfile = null;
 let unreadCount = 0;
 const app = document.getElementById('app');
 
+// Danh sách độ khó hợp lệ (7 -> 1 sao)
+const DIFFICULTIES = [7,6,5,4,3,2,1];
+
 // ---------- helpers ----------
 function msToStr(ms){
   if(!Number.isInteger(ms)||ms<0) return '--:--.---';
@@ -478,7 +481,7 @@ function topMapCard(m, best, rank){
 route('/maps', async ()=> renderMaps(null));
 route('/maps/difficulty/:star', async (p)=> renderMaps(+p.star));
 async function renderMaps(difficulty){
-  // Sắp xếp: độ khó giảm dần (7 -> 2), cùng độ khó thì theo tên A-Z
+  // Sắp xếp: độ khó giảm dần (7 -> 1), cùng độ khó thì theo tên A-Z
   let q = sb.from('maps').select('*').eq('is_active',true)
     .order('difficulty', { ascending: false })
     .order('name', { ascending: true });
@@ -493,8 +496,8 @@ async function renderMaps(difficulty){
     if(!rerr) (ranks||[]).forEach(r=> bestByMap[r.map_id]=r);
   }
 
-  // Filter ưu tiên sao cao trước: 7 -> 2
-  const filters=[null,7,6,5,4,3,2];
+  // Filter ưu tiên sao cao trước: 7 -> 1
+  const filters=[null, ...DIFFICULTIES];
   layout(`
     <div class="mb-4 md:mb-6">
       <div class="search-box" id="search-wrap">
@@ -847,7 +850,6 @@ route('/submit-record', async (params)=>{
   function filterList(){
     const kw = removeDiacritics(cbInput.value.trim());
     filtered = kw ? maps.filter(m=>removeDiacritics(m.name).includes(kw)) : maps.slice();
-    // Nếu input khớp y hệt tên map đang chọn thì vẫn hiện đủ
     highlightedIdx = filtered.length ? 0 : -1;
     renderList();
   }
@@ -878,7 +880,6 @@ route('/submit-record', async (params)=>{
 
   cbInput.addEventListener('focus', openList);
   cbInput.addEventListener('input', ()=>{
-    // Khi gõ, reset hidden value nếu text khác tên map đã chọn
     cbValue.value = '';
     cb.classList.toggle('has-value', cbInput.value.length > 0);
     cbHint.textContent = 'Chưa chọn map';
@@ -905,7 +906,6 @@ route('/submit-record', async (params)=>{
   });
   cbClear.addEventListener('mousedown', (e)=>{ e.preventDefault(); clearSelection(); });
   cbClear.addEventListener('click', (e)=>{ e.preventDefault(); clearSelection(); });
-  // Đóng khi click ra ngoài
   document.addEventListener('mousedown', (e)=>{
     if(!cb.contains(e.target)) closeList();
   });
@@ -918,7 +918,6 @@ route('/submit-record', async (params)=>{
       const fd = new FormData(e.target);
       const mapId = cbValue.value || fd.get('map_id');
       if(!mapId) throw new Error('Vui lòng chọn map từ danh sách gợi ý.');
-      // Kiểm tra map id tồn tại trong danh sách
       if(!maps.some(m=>m.id===mapId)) throw new Error('Map đã chọn không hợp lệ. Vui lòng chọn lại từ gợi ý.');
 
       const time_ms = parseTimeStr(fd.get('time_str'));
@@ -1134,7 +1133,7 @@ route('/admin/maps', async ()=>{
               pattern="^[a-z0-9]+(-[a-z0-9]+)*$" title="Chỉ chữ thường, số, gạch ngang"></div>
           <div><label class="text-sm text-[--tx2]">Độ khó</label>
             <select required name="difficulty" class="mt-1">
-              ${[7,6,5,4,3,2].map(n=>`<option value="${n}">${n}⭐</option>`).join('')}
+              ${DIFFICULTIES.map(n=>`<option value="${n}">${n}⭐</option>`).join('')}
             </select></div>
           <div><label class="text-sm text-[--tx2]">Mô tả</label>
             <textarea name="description" rows="2" class="mt-1"></textarea></div>
