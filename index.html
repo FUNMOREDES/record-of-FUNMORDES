@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -40,6 +41,11 @@
   #menu-overlay{opacity:0;pointer-events:none;transition:.25s}
   #menu-overlay.open{opacity:1;pointer-events:auto}
   .notif-badge{min-width:18px;height:18px;padding:0 4px;border-radius:9px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+  /* Sao to hơn 1.5 lần */
+  .star-badge{font-size:15px;line-height:1}
+  @media(min-width:768px){.star-badge{font-size:18px}}
+  .star-inline{font-size:15px;line-height:1}
+  @media(min-width:768px){.star-inline{font-size:20px}}
 </style>
 </head>
 <body>
@@ -86,7 +92,8 @@ function toast(msg, type='ok'){
   document.body.appendChild(el);
   setTimeout(()=>el.remove(), 3000);
 }
-function stars(n){ return '★'.repeat(n) + '☆'.repeat(7-n); }
+// Chỉ hiển thị đúng số sao thực tế, không có sao rỗng
+function stars(n){ return '★'.repeat(n); }
 function isModOrAdmin(){ return currentProfile?.role==='admin' || currentProfile?.role==='moderator'; }
 function isAdmin(){ return currentProfile?.role==='admin'; }
 
@@ -403,7 +410,10 @@ function emptyState(msg){ return `<div class="card p-8 md:p-10 text-center text-
 route('/maps', async ()=> renderMaps(null));
 route('/maps/difficulty/:star', async (p)=> renderMaps(+p.star));
 async function renderMaps(difficulty){
-  let q = sb.from('maps').select('*').eq('is_active',true).order('sort_order');
+  // Sắp xếp: độ khó giảm dần (7 -> 2), cùng độ khó thì theo tên A-Z
+  let q = sb.from('maps').select('*').eq('is_active',true)
+    .order('difficulty', { ascending: false })
+    .order('name', { ascending: true });
   if(difficulty) q = q.eq('difficulty', difficulty);
   const { data: maps, error } = await q;
   if(error) throw error;
@@ -415,7 +425,8 @@ async function renderMaps(difficulty){
     if(!rerr) (ranks||[]).forEach(r=> bestByMap[r.map_id]=r);
   }
 
-  const filters=[null,2,3,4,5,6,7];
+  // Filter ưu tiên sao cao trước: 7 -> 2
+  const filters=[null,7,6,5,4,3,2];
   layout(`
     <div class="flex flex-wrap gap-2 mb-4 md:mb-6">
       ${filters.map(f=>`<a onclick="navigate('${f?'/maps/difficulty/'+f:'/maps'}')"
@@ -430,7 +441,7 @@ function mapCard(m,best){
   return `<div class="card overflow-hidden cursor-pointer group" onclick="navigate('/map/${esc(m.slug)}')">
     <div class="aspect-video overflow-hidden relative" style="background:var(--bg2)">
       ${m.thumbnail_url?`<img src="${esc(m.thumbnail_url)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">`:`<div class="w-full h-full flex items-center justify-center text-3xl md:text-4xl">🏁</div>`}
-      <span class="badge absolute top-2 right-2 text-[10px] md:text-xs" style="background:var(--card);color:var(--gold)">${stars(m.difficulty)}</span>
+      <span class="badge star-badge absolute top-2 right-2" style="background:var(--card);color:var(--gold)">${stars(m.difficulty)}</span>
       <div class="absolute inset-x-0 bottom-0 h-2/3 pointer-events-none" style="background:linear-gradient(to top, rgba(8,11,18,.92), rgba(8,11,18,0))"></div>
       <div class="absolute bottom-2 left-2 right-2">
         <div class="font-bold text-white text-sm md:text-base leading-tight" style="text-shadow:0 1px 4px rgba(0,0,0,.8)">${esc(m.name)}</div>
@@ -455,7 +466,7 @@ route('/map/:slug', async (p)=>{
     <div class="card p-4 md:p-8 mb-6 md:mb-8">
       <div class="flex flex-col md:flex-row justify-between items-start gap-4">
         <div class="w-full md:flex-1">
-          <div class="mb-2 text-sm" style="color:var(--gold)">${stars(map.difficulty)}</div>
+          <div class="mb-2 star-inline" style="color:var(--gold)">${stars(map.difficulty)}</div>
           <h1 class="text-xl md:text-3xl font-extrabold">${esc(map.name)}</h1>
           <p class="text-sm md:text-base text-[--tx2] mt-2 max-w-xl">${esc(map.description||'')}</p>
         </div>
@@ -526,7 +537,7 @@ route('/leaderboard', async ()=>{
             ${(recs||[]).length ? recs.map(r=>`<tr class="border-b hover:bg-[--card-h] cursor-pointer" style="border-color:var(--bd)" onclick="navigate('/map/${esc(r.maps.slug)}')">
               <td class="p-2 md:p-3">
                 <div class="font-semibold">${esc(r.maps.name)}</div>
-                <div class="text-xs text-[--tx2]">${'★'.repeat(r.maps.difficulty)}</div>
+                <div class="star-inline" style="color:var(--gold)">${stars(r.maps.difficulty)}</div>
               </td>
               <td class="p-2 md:p-3">${esc(r.profiles?.ingame_name||'?')}</td>
               <td class="p-2 md:p-3 hide-mobile">${esc(r.car||'—')}</td>
@@ -798,7 +809,7 @@ route('/admin/records', async ()=>{
               <div>
                 <div class="flex items-center gap-2 mb-2 flex-wrap">
                   <span class="font-bold text-base md:text-lg">${esc(r.maps.name)}</span>
-                  <span class="text-sm" style="color:var(--gold)">${'★'.repeat(r.maps.difficulty)}</span>
+                  <span class="star-inline" style="color:var(--gold)">${stars(r.maps.difficulty)}</span>
                 </div>
                 <div class="text-xs md:text-sm text-[--tx2] mb-1">
                   Người gửi: <b class="text-white">${esc(r.profiles?.ingame_name||'?')}</b> (@${esc(r.profiles?.username||'?')})
@@ -874,7 +885,9 @@ route('/admin/records', async ()=>{
 // ---------- ADMIN: quản lý map ----------
 route('/admin/maps', async ()=>{
   if(!isModOrAdmin()){ toast('Bạn không có quyền truy cập.','err'); return navigate('/'); }
-  const { data: maps } = await sb.from('maps').select('*').order('sort_order');
+  const { data: maps } = await sb.from('maps').select('*')
+    .order('difficulty', { ascending: false })
+    .order('name', { ascending: true });
   layout(`
     <h1 class="text-xl md:text-2xl font-extrabold mb-4 md:mb-6">Quản lý map</h1>
     <div class="grid lg:grid-cols-[380px_1fr] gap-4 md:gap-6">
@@ -888,7 +901,7 @@ route('/admin/maps', async ()=>{
               pattern="^[a-z0-9]+(-[a-z0-9]+)*$" title="Chỉ chữ thường, số, gạch ngang"></div>
           <div><label class="text-sm text-[--tx2]">Độ khó</label>
             <select required name="difficulty" class="mt-1">
-              ${[2,3,4,5,6,7].map(n=>`<option value="${n}">${n}⭐</option>`).join('')}
+              ${[7,6,5,4,3,2].map(n=>`<option value="${n}">${n}⭐</option>`).join('')}
             </select></div>
           <div><label class="text-sm text-[--tx2]">Mô tả</label>
             <textarea name="description" rows="2" class="mt-1"></textarea></div>
@@ -914,7 +927,7 @@ route('/admin/maps', async ()=>{
                   ${m.thumbnail_url?`<img src="${esc(m.thumbnail_url)}" class="w-12 h-7 md:w-14 md:h-8 object-cover rounded">`:`<div class="w-12 h-7 md:w-14 md:h-8 rounded flex items-center justify-center" style="background:var(--bg2)">🏁</div>`}
                   <span class="font-semibold text-xs md:text-sm">${esc(m.name)}</span>
                 </td>
-                <td class="p-2 md:p-3 text-xs md:text-sm">${m.difficulty}⭐</td>
+                <td class="p-2 md:p-3 star-inline" style="color:var(--gold)">${stars(m.difficulty)}</td>
                 <td class="p-2 md:p-3 hide-mobile"><span class="badge" style="background:var(--bg2);color:${m.is_active?'var(--ok)':'var(--tx2)'}">${m.is_active?'Đang hiện':'Đã ẩn'}</span></td>
                 <td class="p-2 md:p-3 text-right whitespace-nowrap">
                   <button class="btn-s text-[10px] md:text-xs !py-1 !px-2 toggle-active" data-id="${m.id}" data-active="${m.is_active}">${m.is_active?'Ẩn':'Hiện'}</button>
@@ -1110,3 +1123,4 @@ function memberRow(m){
 </script>
 </body>
 </html>
+```
