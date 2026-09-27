@@ -34,25 +34,21 @@
     .table-wrap table{min-width:520px;font-size:.8rem}
     .hide-mobile{display:none}
   }
-  /* Mobile drawer */
   #mobile-menu{transform:translateX(-100%);transition:.25s}
   #mobile-menu.open{transform:translateX(0)}
   #menu-overlay{opacity:0;pointer-events:none;transition:.25s}
   #menu-overlay.open{opacity:1;pointer-events:auto}
   .notif-badge{min-width:18px;height:18px;padding:0 4px;border-radius:9px;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
-  /* Sao to hơn 1.5 lần */
   .star-badge{font-size:15px;line-height:1}
   @media(min-width:768px){.star-badge{font-size:18px}}
   .star-inline{font-size:15px;line-height:1}
   @media(min-width:768px){.star-inline{font-size:20px}}
-  /* Search box */
   .search-box{position:relative}
   .search-box input{padding-left:2.5rem}
   .search-box .search-icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--tx2);pointer-events:none}
   .search-box .clear-btn{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);color:var(--tx2);cursor:pointer;padding:.25rem;border-radius:6px;display:none}
   .search-box .clear-btn:hover{background:var(--card-h);color:var(--tx)}
   .search-box.has-value .clear-btn{display:block}
-  /* Map combobox (cho gửi kỷ lục) */
   .map-combobox{position:relative}
   .map-combobox .cb-input{padding-left:2.5rem;padding-right:2.5rem;cursor:text}
   .map-combobox .cb-icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--tx2);pointer-events:none}
@@ -66,10 +62,8 @@
   .map-combobox .cb-item:hover,.map-combobox .cb-item.active{background:var(--card-h)}
   .map-combobox .cb-empty{padding:.8rem;text-align:center;color:var(--tx2);font-size:.875rem}
   .map-combobox .cb-star{color:var(--gold);white-space:nowrap}
-  /* User link - clickable name */
   .user-link{color:inherit;transition:.15s;border-bottom:1px dashed transparent}
   .user-link:hover{color:var(--blue);border-bottom-color:var(--blue)}
-  /* Timeline (blog) */
   .timeline{position:relative;padding-left:2rem}
   .timeline::before{content:'';position:absolute;left:.5rem;top:0;bottom:0;width:2px;background:var(--bd)}
   .timeline-item{position:relative;margin-bottom:1.5rem}
@@ -82,10 +76,24 @@
     .timeline::before{left:.75rem}
     .timeline-item::before{left:-1.8rem;width:1rem;height:1rem}
   }
-  /* Blog post card */
   .blog-post{background:var(--card);border:1px solid var(--bd);border-radius:14px;transition:.2s}
   .blog-post:hover{background:var(--card-h)}
   .blog-evidence{width:100%;max-height:420px;object-fit:contain;background:var(--bg2);border-radius:10px}
+  /* Avatar */
+  .avatar{width:2.5rem;height:2.5rem;border-radius:9999px;object-fit:cover;flex-shrink:0;background:linear-gradient(135deg,var(--blue),var(--orange));display:flex;align-items:center;justify-content:center;font-weight:800;color:#0a0a0a;font-size:1rem}
+  .avatar-sm{width:2rem;height:2rem;font-size:.85rem}
+  .avatar-lg{width:4rem;height:4rem;font-size:1.5rem}
+  .avatar-xl{width:6rem;height:6rem;font-size:2.5rem}
+  @media(min-width:768px){
+    .avatar-xl{width:8rem;height:8rem;font-size:3.5rem}
+  }
+  .avatar-edit-wrap{position:relative;display:inline-block}
+  .avatar-edit-btn{position:absolute;bottom:0;right:0;width:2rem;height:2rem;border-radius:9999px;background:var(--blue);color:#0a0a0a;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid var(--card);font-size:1rem}
+  .avatar-edit-btn:hover{filter:brightness(1.15)}
+  /* Feed */
+  .feed-post{background:var(--card);border:1px solid var(--bd);border-radius:14px;margin-bottom:1rem;transition:.2s;overflow:hidden}
+  .feed-post:hover{border-color:rgba(148,163,184,0.3)}
+  .feed-img{width:100%;max-height:520px;object-fit:contain;background:var(--bg2)}
 </style>
 </head>
 <body>
@@ -107,7 +115,6 @@ let currentProfile = null;
 let unreadCount = 0;
 const app = document.getElementById('app');
 
-// Danh sách độ khó hợp lệ (7 -> 1 sao)
 const DIFFICULTIES = [7,6,5,4,3,2,1];
 
 // ---------- helpers ----------
@@ -135,7 +142,6 @@ function toast(msg, type='ok'){
   document.body.appendChild(el);
   setTimeout(()=>el.remove(), 3000);
 }
-// Chỉ hiển thị đúng số sao thực tế, không có sao rỗng
 function stars(n){ return '★'.repeat(n); }
 function isModOrAdmin(){ return currentProfile?.role==='admin' || currentProfile?.role==='moderator'; }
 function isAdmin(){ return currentProfile?.role==='admin'; }
@@ -147,24 +153,30 @@ function slugify(str){
     .replace(/[^a-z0-9\s-]/g,'')
     .replace(/\s+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
 }
-
-// Bỏ dấu tiếng Việt để tìm kiếm không dấu
 function removeDiacritics(str){
   return (str||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/gi, d=>d==='đ'?'d':'D').toLowerCase();
 }
 
-// Link user - dùng ở bất kỳ đâu muốn tên user click được
+// Avatar HTML — trả về <div> hoặc <img> tuỳ có avatar_url không
+function avatarHTML(profile, size='', extraClass=''){
+  const sizeClass = size || 'avatar';
+  const initial = esc((profile?.ingame_name||'?').charAt(0).toUpperCase());
+  if(profile?.avatar_url){
+    return `<img src="${esc(profile.avatar_url)}" alt="${initial}" class="${sizeClass} ${extraClass}">`;
+  }
+  return `<div class="${sizeClass} ${extraClass}">${initial}</div>`;
+}
+
 function userLink(username, displayName, extraClass=''){
   if(!username) return esc(displayName || '?');
   return `<a onclick="event.stopPropagation();navigate('/user/${esc(username)}')" class="user-link ${extraClass}">${esc(displayName || username)}</a>`;
 }
 
-// Format thời gian kiểu blog: "3 giờ trước", "2 ngày trước", hoặc ngày cụ thể
 function timeAgo(dateStr){
   if(!dateStr) return '';
   const d = new Date(dateStr);
   const now = new Date();
-  const diff = Math.floor((now - d) / 1000); // seconds
+  const diff = Math.floor((now - d) / 1000);
   if(diff < 60) return 'vừa xong';
   if(diff < 3600) return `${Math.floor(diff/60)} phút trước`;
   if(diff < 86400) return `${Math.floor(diff/3600)} giờ trước`;
@@ -181,8 +193,6 @@ function fullDateTime(dateStr){
     hour:'2-digit', minute:'2-digit', second:'2-digit'
   });
 }
-
-// Fire-and-forget an toàn cho Supabase v2 (không dùng .catch trực tiếp)
 function fireRpc(fn, params){
   (async ()=>{ try{ await sb.rpc(fn, params); }catch(e){} })();
 }
@@ -277,20 +287,17 @@ function layout(content){
   app.innerHTML = `
   <header class="sticky top-0 z-40 border-b" style="border-color:var(--bd);background:rgba(8,11,18,.92);backdrop-filter:blur(8px)">
     <div class="w-full flex items-center justify-between gap-3 px-3 md:px-4 py-3 md:py-0 md:h-[100px]">
-
       <button onclick="toggleMobileMenu()" class="md:hidden p-2 rounded-lg border" style="border-color:var(--bd)">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 6h18M3 12h18M3 18h18"/>
         </svg>
       </button>
-
       <div class="flex items-center gap-2 md:gap-3 cursor-pointer min-w-0 flex-1 md:flex-none" onclick="navigate('/')">
         ${CLAN_LOGO
           ? `<img src="${esc(CLAN_LOGO)}" class="h-10 md:h-16 w-auto rounded object-contain shrink-0">`
           : '<span class="text-2xl md:text-4xl shrink-0">🏁</span>'}
         <span class="text-lg md:text-3xl font-extrabold whitespace-nowrap truncate" style="color:var(--blue)">${esc(CLAN_NAME)}</span>
       </div>
-
       <nav class="hidden md:flex items-center justify-center gap-5 text-lg font-bold whitespace-nowrap text-[--tx2] flex-1">
         <a onclick="navigate('/')" class="hover:text-white">Trang chủ</a>
         <a onclick="navigate('/maps')" class="hover:text-white">Tất cả map</a>
@@ -300,7 +307,6 @@ function layout(content){
         ${isStaff?'<a onclick="navigate(\'/admin/maps\')" class="hover:text-white" style="color:var(--orange)">Quản lý map</a>':''}
         ${isAdm?'<a onclick="navigate(\'/admin/settings\')" class="hover:text-white" style="color:var(--orange)">Cài đặt</a>':''}
       </nav>
-
       <div class="flex items-center justify-end gap-2 md:gap-3 whitespace-nowrap">
         ${currentUser ? `
           <a onclick="navigate('/notifications')" class="relative p-2 rounded-lg hover:bg-[--card-h]" title="Thông báo">
@@ -309,7 +315,10 @@ function layout(content){
           </a>
           <a onclick="navigate('/submit-record')" class="btn-p text-xs md:text-sm !py-2 !px-3">Gửi kỷ lục</a>
           <div class="hidden md:flex items-center gap-3">
-            <a onclick="navigate('/user/${esc(currentProfile?.username||'')}')" class="text-sm text-[--tx2] hover:text-white">${esc(currentProfile?.ingame_name||'Tôi')}</a>
+            <a onclick="navigate('/user/${esc(currentProfile?.username||'')}')" class="flex items-center gap-2 hover:opacity-80">
+              ${avatarHTML(currentProfile, 'avatar avatar-sm')}
+              <span class="text-sm text-[--tx2] hover:text-white">${esc(currentProfile?.ingame_name||'Tôi')}</span>
+            </a>
             <a onclick="navigate('/profile')" class="text-sm text-[--tx2] hover:text-white">Hồ sơ</a>
             <a onclick="doLogout()" class="text-sm text-[--tx2] hover:text-white">Đăng xuất</a>
           </div>
@@ -447,13 +456,12 @@ route('/register', async ()=>{
   };
 });
 
-// ---------- TRANG CHỦ ----------
+// ---------- TRANG CHỦ (có FEED) ----------
 route('/', async ()=>{
-  const [{count:mapCount}, {count:memberCount}, {count:recCount}, {data:latest}, {data:topMaps}] = await Promise.all([
+  const [{count:mapCount}, {count:memberCount}, {count:recCount}, {data:topMaps}] = await Promise.all([
     sb.from('maps').select('*',{count:'exact',head:true}).eq('is_active',true),
     sb.from('profiles').select('*',{count:'exact',head:true}),
     sb.from('records').select('*',{count:'exact',head:true}).eq('status','approved'),
-    sb.from('records').select('time_ms,submitted_at,maps(name,slug),profiles!records_user_id_fkey(ingame_name,username)').eq('status','approved').order('submitted_at',{ascending:false}).limit(5),
     sb.from('maps').select('id,name,slug,thumbnail_url,difficulty,view_count').eq('is_active',true).order('view_count',{ascending:false}).limit(3)
   ]);
 
@@ -466,9 +474,35 @@ route('/', async ()=>{
     (ranks||[]).forEach(r=> bestByMap[r.map_id]=r);
   }
 
+  // Lấy feed: 20 kỷ lục approved mới nhất (nhiều user khác nhau)
+  const { data: feedRecs } = await sb.from('records')
+    .select('id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)')
+    .eq('status','approved')
+    .order('submitted_at',{ascending:false})
+    .limit(20);
+
+  // Đếm tổng feed để tính nút "Xem thêm"
+  const feedLimit = 20;
+  const feedHasMore = (feedRecs||[]).length === feedLimit;
+
+  // Lấy top1 map để đánh dấu
+  const { data: top1Ranks } = await sb.from('map_rankings')
+    .select('map_id,user_id,rank')
+    .eq('rank',1);
+  const top1Keys = new Set((top1Ranks||[]).map(r=>`${r.map_id}_${r.user_id}`));
+
+  // Tạo signed URLs cho ảnh evidence
+  const evidenceUrls = {};
+  await Promise.all((feedRecs||[]).map(async (r)=>{
+    if(!r.evidence_url) return;
+    try{
+      const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600);
+      if(data?.signedUrl) evidenceUrls[r.id] = data.signedUrl;
+    }catch(e){}
+  }));
+
   layout(`
-      <section class="rounded-2xl mb-6 md:mb-10 card overflow-hidden relative" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
-      <!-- Ảnh nền mờ -->
+    <section class="rounded-2xl mb-6 md:mb-10 card overflow-hidden relative" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
       <div class="absolute inset-0 pointer-events-none" style="
         background-image:url('1790491929692_427855192085454370_5721502452398162612_c7a25cb862b431b86e6871ce32a6489d.jpg');
         background-size:cover;
@@ -477,12 +511,9 @@ route('/', async ()=>{
         filter:blur(0px);
         transform:scale(1.05);
       "></div>
-      <!-- Lớp gradient phủ trên để chữ dễ đọc -->
       <div class="absolute inset-0 pointer-events-none" style="background:linear-gradient(135deg, rgba(14,20,32,.85), rgba(18,27,42,.65))"></div>
-
-      <!-- Nội dung -->
       <div class="relative z-10 p-6 md:p-10">
-       <h1 class="text-2xl md:text-5xl font-extrabold mb-2"><span style="color:var(--gold)">Chào Mừng Đến Với.</span> <span style="color:#A855F7">FUNMORDES</span></h1>
+        <h1 class="text-2xl md:text-5xl font-extrabold mb-2"><span style="color:var(--gold)">Chào Mừng Đến Với.</span> <span style="color:#A855F7">FUNMORDES</span></h1>
         <p class="text-sm md:text-lg text-[--tx2] mb-5 md:mb-6">${esc(CLAN_SLOGAN)}</p>
         <div class="flex flex-wrap gap-2 md:gap-3">
           <a onclick="navigate('/maps')" class="btn-p text-sm">Khám phá bản đồ</a>
@@ -490,6 +521,7 @@ route('/', async ()=>{
         </div>
       </div>
     </section>
+
     <div class="grid grid-cols-3 gap-2 md:gap-4 mb-6 md:mb-10">
       ${statCard('Bản đồ', mapCount??0)}
       ${statCard('Thành viên', memberCount??0)}
@@ -504,18 +536,106 @@ route('/', async ()=>{
       </div>
     </div>` : ''}
 
-    <h2 class="text-lg md:text-xl font-bold mb-3 md:mb-4">Kỷ lục mới nhất</h2>
-    <div class="space-y-2">
-      ${(latest||[]).length ? latest.map(r=>`
-        <div class="card p-3 md:p-4 flex justify-between items-center gap-2 cursor-pointer" onclick="navigate('/map/${esc(r.maps.slug)}')">
-          <div class="min-w-0 flex-1">
-            <div class="font-semibold truncate">${esc(r.maps.name)}</div>
-            <div class="text-xs md:text-sm text-[--tx2] truncate">— ${userLink(r.profiles?.username, r.profiles?.ingame_name)}</div>
-          </div>
-          <div class="font-mono text-sm md:text-base shrink-0" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
-        </div>`).join('') : emptyState('Chưa có kỷ lục nào được duyệt.')}
-    </div>`);
+    <!-- FEED KỶ LỤC -->
+    <div class="mb-3 md:mb-4 flex items-center justify-between">
+      <h2 class="text-lg md:text-xl font-bold">📰 Feed kỷ lục</h2>
+      <a onclick="navigate('/leaderboard')" class="text-sm text-[--tx2] hover:text-white">Xem bảng xếp hạng →</a>
+    </div>
+    <div id="feed-container">
+      ${(feedRecs||[]).length ? feedRecs.map(r=>feedPost(r, evidenceUrls[r.id], top1Keys)).join('') : emptyState('Chưa có kỷ lục nào được duyệt.')}
+    </div>
+    ${feedHasMore ? `
+      <div class="text-center mt-4">
+        <button id="load-more-feed" class="btn-s text-sm" data-offset="${feedLimit}">Xem thêm kỷ lục cũ hơn ↓</button>
+      </div>
+    ` : ''}
+  `);
+
+  // Load more feed
+  const loadMoreBtn = document.getElementById('load-more-feed');
+  if(loadMoreBtn){
+    loadMoreBtn.onclick = async ()=>{
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = 'Đang tải...';
+      const offset = +loadMoreBtn.dataset.offset;
+      const { data: moreRecs } = await sb.from('records')
+        .select('id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)')
+        .eq('status','approved')
+        .order('submitted_at',{ascending:false})
+        .range(offset, offset + feedLimit - 1);
+      
+      const moreUrls = {};
+      await Promise.all((moreRecs||[]).map(async (r)=>{
+        if(!r.evidence_url) return;
+        try{
+          const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600);
+          if(data?.signedUrl) moreUrls[r.id] = data.signedUrl;
+        }catch(e){}
+      }));
+
+      const container = document.getElementById('feed-container');
+      container.insertAdjacentHTML('beforeend', (moreRecs||[]).map(r=>feedPost(r, moreUrls[r.id], top1Keys)).join(''));
+      
+      if((moreRecs||[]).length < feedLimit){
+        loadMoreBtn.remove();
+      } else {
+        loadMoreBtn.dataset.offset = offset + feedLimit;
+        loadMoreBtn.disabled = false;
+        loadMoreBtn.textContent = 'Xem thêm kỷ lục cũ hơn ↓';
+      }
+    };
+  }
 });
+
+// Feed post — hiển thị như 1 bài viết blog
+function feedPost(r, evidenceUrl, top1Keys){
+  const p = r.profiles || {};
+  const isTop1 = top1Keys.has(`${r.maps.id}_${p.id}`);
+  return `<article class="feed-post">
+    <!-- Header: avatar + tên + thời gian -->
+    <div class="p-3 md:p-4 flex items-center gap-3 border-b" style="border-color:var(--bd)">
+      <a onclick="navigate('/user/${esc(p.username)}')" class="shrink-0">
+        ${avatarHTML(p, 'avatar')}
+      </a>
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          ${userLink(p.username, p.ingame_name, 'font-semibold')}
+          ${isTop1?`<span class="badge text-[10px]" style="background:var(--gold);color:#0a0a0a">🥇 Top 1</span>`:''}
+        </div>
+        <div class="text-xs text-[--tx2]" title="${esc(fullDateTime(r.submitted_at))}">${timeAgo(r.submitted_at)} · đã đăng kỷ lục mới</div>
+      </div>
+      <span class="badge shrink-0" style="background:var(--ok);color:#0a0a0a">✅</span>
+    </div>
+
+    <!-- Nội dung -->
+    <div class="p-3 md:p-4">
+      <h3 class="text-base md:text-lg font-bold mb-3">
+        🏁 <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="user-link">${esc(r.maps.name)}</a>
+        <span class="star-inline ml-1" style="color:var(--gold)">${stars(r.maps.difficulty)}</span>
+      </h3>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-3 text-xs md:text-sm">
+        <div><div class="text-[--tx2]">⏱️ Thời gian</div><div class="font-mono font-bold" style="color:var(--gold)">${msToStr(r.time_ms)}</div></div>
+        <div><div class="text-[--tx2]">🚗 Xe</div><div class="font-semibold truncate">${esc(r.car||'—')}</div></div>
+        <div><div class="text-[--tx2]">🐾 Pet</div><div class="font-semibold truncate">${esc(r.pet||'—')}</div></div>
+        <div><div class="text-[--tx2]">📅 Ngày</div><div class="font-semibold">${new Date(r.submitted_at).toLocaleDateString('vi-VN')}</div></div>
+      </div>
+      ${r.note?`<div class="text-xs md:text-sm italic text-[--tx2] p-2 rounded-lg" style="background:var(--bg2)">💬 "${esc(r.note)}"</div>`:''}
+    </div>
+
+    ${evidenceUrl?`
+      <a href="${evidenceUrl}" target="_blank" class="block">
+        <img src="${evidenceUrl}" class="feed-img" loading="lazy" onerror="this.parentElement.style.display='none'">
+      </a>
+    `:''}
+
+    <!-- Actions -->
+    <div class="p-3 md:p-4 border-t flex justify-between items-center gap-2" style="border-color:var(--bd)">
+      <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="text-sm text-[--tx2] hover:text-white">🗺️ Xem map</a>
+      <a onclick="navigate('/user/${esc(p.username)}')" class="text-sm text-[--tx2] hover:text-white">📖 Blog của ${esc(p.ingame_name||p.username)} →</a>
+    </div>
+  </article>`;
+}
+
 function statCard(label,val){ return `<div class="card p-3 md:p-5 text-center md:text-left"><div class="text-xl md:text-3xl font-extrabold" style="color:var(--blue)">${val}</div><div class="text-xs md:text-sm text-[--tx2] mt-1">${esc(label)}</div></div>`; }
 function emptyState(msg){ return `<div class="card p-8 md:p-10 text-center text-[--tx2] text-sm">${esc(msg)}</div>`; }
 
@@ -640,7 +760,7 @@ route('/map/:slug', async (p)=>{
   }
 
   const { data: ranks, error:rerr } = await sb.from('map_rankings')
-    .select('rank,time_ms,car,pet,ingame_name,username')
+    .select('rank,time_ms,car,pet,ingame_name,username,avatar_url')
     .eq('map_id',map.id).order('rank').limit(50);
   if(rerr) throw new Error('Lỗi view map_rankings: '+rerr.message);
   const top3 = (ranks||[]).slice(0,3);
@@ -674,7 +794,12 @@ route('/map/:slug', async (p)=>{
           <tbody>
             ${(ranks||[]).map(r=>`<tr class="border-b" style="border-color:var(--bd)">
               <td class="p-2 md:p-3 font-bold">${r.rank<=3?['🥇','🥈','🥉'][r.rank-1]:r.rank}</td>
-              <td class="p-2 md:p-3">${userLink(r.username, r.ingame_name)}</td>
+              <td class="p-2 md:p-3">
+                <div class="flex items-center gap-2">
+                  ${avatarHTML({ingame_name:r.ingame_name, avatar_url:r.avatar_url}, 'avatar avatar-sm')}
+                  ${userLink(r.username, r.ingame_name)}
+                </div>
+              </td>
               <td class="p-2 md:p-3">${esc(r.car||'—')}</td>
               <td class="p-2 md:p-3">${esc(r.pet||'—')}</td>
               <td class="p-2 md:p-3 font-mono" style="color:var(--gold)">${msToStr(r.time_ms)}</td>
@@ -688,6 +813,9 @@ function podium(r,pos){
   const medal=['🥇','🥈','🥉'][pos-1];
   return `<div class="card p-3 md:p-5 text-center" style="order:${pos===1?0:pos}">
     <div class="text-2xl md:text-3xl mb-1">${medal}</div>
+    <div class="flex justify-center mb-2">
+      ${avatarHTML({ingame_name:r.ingame_name, avatar_url:r.avatar_url}, 'avatar avatar-lg')}
+    </div>
     <div class="font-bold text-xs md:text-base truncate">${userLink(r.username, r.ingame_name)}</div>
     <div class="text-[10px] md:text-xs text-[--tx2] mt-1 truncate">${esc(r.car||'—')} · ${esc(r.pet||'—')}</div>
     <div class="font-mono text-xs md:text-sm mt-1" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
@@ -697,7 +825,7 @@ function podium(r,pos){
 // ---------- BẢNG XẾP HẠNG THÀNH VIÊN ----------
 route('/leaderboard', async ()=>{
   const { data: profiles, error:perr } = await sb.from('profiles')
-    .select('id,username,ingame_name,role,status,joined_at')
+    .select('id,username,ingame_name,role,status,joined_at,avatar_url')
     .order('joined_at',{ascending:true});
   if(perr) throw perr;
 
@@ -771,8 +899,13 @@ route('/leaderboard', async ()=>{
               return `<tr class="border-b hover:bg-[--card-h] cursor-pointer transition" style="border-color:var(--bd)" onclick="navigate('/user/${esc(s.profile.username)}')">
                 <td class="p-2 md:p-3 font-bold text-base md:text-lg">${medal}</td>
                 <td class="p-2 md:p-3">
-                  <div class="font-semibold">${esc(s.profile.ingame_name||'?')}</div>
-                  <div class="text-xs text-[--tx2]">@${esc(s.profile.username)}</div>
+                  <div class="flex items-center gap-2">
+                    ${avatarHTML(s.profile, 'avatar avatar-sm')}
+                    <div class="min-w-0">
+                      <div class="font-semibold truncate">${esc(s.profile.ingame_name||'?')}</div>
+                      <div class="text-xs text-[--tx2]">@${esc(s.profile.username)}</div>
+                    </div>
+                  </div>
                 </td>
                 <td class="p-2 md:p-3 text-center">
                   ${s.top1Count > 0 
@@ -802,7 +935,6 @@ route('/user/:username', async (p)=>{
     .select('*').eq('username', username).single();
   if(perr || !profile) return render404();
 
-  // Lấy tất cả records approved của user (kèm map info)
   const { data: recs, error:rerr } = await sb.from('records')
     .select('id,time_ms,car,pet,submitted_at,approved_at,evidence_url,note,maps(id,name,slug,difficulty,thumbnail_url)')
     .eq('user_id', profile.id)
@@ -810,7 +942,6 @@ route('/user/:username', async (p)=>{
     .order('submitted_at',{ascending:false});
   if(rerr) throw rerr;
 
-  // Lấy map_rankings để biết user này đang top 1 map nào
   const { data: top1Ranks } = await sb.from('map_rankings')
     .select('map_id,time_ms,rank')
     .eq('user_id', profile.id)
@@ -818,7 +949,6 @@ route('/user/:username', async (p)=>{
   const top1Set = new Set((top1Ranks||[]).map(r=>r.map_id));
   const top1MapCount = top1Set.size;
 
-  // Tổng hợp theo map
   const byMap = {};
   (recs||[]).forEach(r=>{
     const mid = r.maps.id;
@@ -844,7 +974,6 @@ route('/user/:username', async (p)=>{
   const roleColor = {admin:'var(--orange)', moderator:'var(--blue)', member:'var(--tx2)'};
   const isSelf = currentUser && currentUser.id === profile.id;
 
-  // Tạo signed URLs cho ảnh evidence (song song, giới hạn 50 ảnh gần nhất để tránh overload)
   const recsForEvidence = (recs||[]).slice(0, 50);
   const evidenceUrls = {};
   await Promise.all(recsForEvidence.map(async (r)=>{
@@ -852,15 +981,20 @@ route('/user/:username', async (p)=>{
     try{
       const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600);
       if(data?.signedUrl) evidenceUrls[r.id] = data.signedUrl;
-    }catch(e){ /* ignore */ }
+    }catch(e){}
   }));
 
   layout(`
-    <!-- Header profile kiểu blog -->
     <div class="card p-4 md:p-8 mb-6 md:mb-8">
       <div class="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6">
-        <div class="w-20 h-20 md:w-28 md:h-28 rounded-full flex items-center justify-center text-4xl md:text-6xl font-extrabold shrink-0" style="background:linear-gradient(135deg,var(--blue),var(--orange));color:#0a0a0a">
-          ${esc((profile.ingame_name||'?').charAt(0).toUpperCase())}
+        <div class="avatar-edit-wrap">
+          ${avatarHTML(profile, 'avatar avatar-xl')}
+          ${isSelf?`
+            <label class="avatar-edit-btn" title="Đổi ảnh đại diện">
+              📷
+              <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp" style="display:none">
+            </label>
+          `:''}
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
@@ -883,7 +1017,6 @@ route('/user/:username', async (p)=>{
       </div>
     </div>
 
-    <!-- Phân bổ độ khó -->
     ${totalRecords > 0 ? `
     <div class="card p-4 md:p-6 mb-6 md:mb-8">
       <h2 class="text-base md:text-lg font-bold mb-3 md:mb-4">📊 Kỷ lục theo độ khó</h2>
@@ -898,13 +1031,11 @@ route('/user/:username', async (p)=>{
       </div>
     </div>` : ''}
 
-    <!-- Tabs -->
     <div class="flex gap-2 mb-4 md:mb-6 border-b" style="border-color:var(--bd)">
       <button class="profile-tab active px-4 py-2 font-bold text-sm md:text-base transition" data-tab="blog" style="color:var(--blue);border-bottom:2px solid var(--blue)">📖 Blog kỷ lục</button>
       <button class="profile-tab px-4 py-2 font-bold text-sm md:text-base transition text-[--tx2] hover:text-white" data-tab="maps" style="border-bottom:2px solid transparent">🗺️ Theo map (${uniqueMaps})</button>
     </div>
 
-    <!-- Tab: Blog (timeline) -->
     <div id="tab-blog">
       ${totalRecords ? `
       <div class="timeline">
@@ -913,18 +1044,15 @@ route('/user/:username', async (p)=>{
           const url = evidenceUrls[r.id];
           return `<div class="timeline-item approved">
             <article class="blog-post p-3 md:p-5">
-              <!-- Header -->
               <div class="flex flex-wrap items-center gap-2 mb-3">
                 <span class="badge" style="background:var(--ok);color:#0a0a0a">✅ Đã duyệt</span>
                 ${isTop1?`<span class="badge" style="background:var(--gold);color:#0a0a0a">🥇 Top 1</span>`:''}
                 <span class="text-xs md:text-sm text-[--tx2]" title="${esc(fullDateTime(r.submitted_at))}">🕒 ${timeAgo(r.submitted_at)}</span>
               </div>
-              <!-- Tiêu đề -->
               <h3 class="text-base md:text-xl font-bold mb-2">
                 <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="user-link">${esc(r.maps.name)}</a>
                 <span class="star-inline ml-1" style="color:var(--gold)">${stars(r.maps.difficulty)}</span>
               </h3>
-              <!-- Chi tiết -->
               <div class="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-3 text-xs md:text-sm">
                 <div><div class="text-[--tx2]">⏱️ Thời gian</div><div class="font-mono font-bold" style="color:var(--gold)">${msToStr(r.time_ms)}</div></div>
                 <div><div class="text-[--tx2]">🚗 Xe</div><div class="font-semibold truncate">${esc(r.car||'—')}</div></div>
@@ -932,7 +1060,6 @@ route('/user/:username', async (p)=>{
                 <div><div class="text-[--tx2]">📅 Gửi lúc</div><div class="font-semibold">${new Date(r.submitted_at).toLocaleDateString('vi-VN')}</div></div>
               </div>
               ${r.note?`<div class="text-xs md:text-sm italic text-[--tx2] mb-3 p-2 rounded-lg" style="background:var(--bg2)">💬 "${esc(r.note)}"</div>`:''}
-              <!-- Ảnh bằng chứng -->
               ${url?`
                 <div class="mt-3">
                   <div class="text-xs text-[--tx2] mb-2">📸 Ảnh bằng chứng:</div>
@@ -955,7 +1082,6 @@ route('/user/:username', async (p)=>{
       ` : emptyState(isSelf ? 'Bạn chưa có kỷ lục nào được duyệt. Hãy gửi kỷ lục đầu tiên!' : 'Thành viên này chưa có kỷ lục nào được duyệt.')}
     </div>
 
-    <!-- Tab: Theo map -->
     <div id="tab-maps" class="hidden">
       ${mapList.length ? `
       <div class="space-y-2">
@@ -991,7 +1117,6 @@ route('/user/:username', async (p)=>{
     </div>
   `);
 
-  // Tab switching
   document.querySelectorAll('.profile-tab').forEach(tab=>{
     tab.onclick = ()=>{
       const target = tab.dataset.tab;
@@ -1005,6 +1130,31 @@ route('/user/:username', async (p)=>{
       document.getElementById('tab-maps').classList.toggle('hidden', target!=='maps');
     };
   });
+
+  // Avatar upload
+  const avatarInput = document.getElementById('avatar-input');
+  if(avatarInput){
+    avatarInput.addEventListener('change', async (e)=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      if(!ALLOWED_TYPES.includes(file.type)) return toast('Chỉ chấp nhận ảnh PNG, JPG hoặc WEBP.','err');
+      if(file.size > 5*1024*1024) return toast('Ảnh đại diện tối đa 5MB.','err');
+      try{
+        toast('Đang tải ảnh lên...');
+        const ext = file.name.split('.').pop();
+        const path = `${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+        const { error: upErr } = await sb.storage.from('avatars').upload(path, file, { upsert:false });
+        if(upErr) throw upErr;
+        const { data: pub } = sb.storage.from('avatars').getPublicUrl(path);
+        const newUrl = pub.publicUrl;
+        const { error: dbErr } = await sb.from('profiles').update({ avatar_url: newUrl }).eq('id', currentUser.id);
+        if(dbErr) throw dbErr;
+        await loadSession();
+        toast('Đã cập nhật ảnh đại diện!');
+        resolveRoute();
+      }catch(err){ toast('Lỗi: '+err.message,'err'); }
+    });
+  }
 });
 function profileStat(label,val){
   return `<div class="rounded-xl p-3 md:p-4 text-center" style="background:var(--bg2);border:1px solid var(--bd)">
@@ -1116,7 +1266,10 @@ route('/submit-record', async (params)=>{
   layout(`
     <div class="max-w-lg mx-auto card p-4 md:p-8">
       <h1 class="text-xl md:text-2xl font-extrabold mb-1">Gửi kỷ lục</h1>
-      <p class="text-sm text-[--tx2] mb-5 md:mb-6">Gửi với tư cách: <b>${esc(currentProfile?.ingame_name)}</b></p>
+      <p class="text-sm text-[--tx2] mb-5 md:mb-6 flex items-center gap-2">
+        ${avatarHTML(currentProfile, 'avatar avatar-sm')}
+        Gửi với tư cách: <b>${esc(currentProfile?.ingame_name)}</b>
+      </p>
       <form id="f-rec" class="space-y-4">
         <div>
           <label class="text-sm text-[--tx2]">Map</label>
@@ -1287,6 +1440,22 @@ route('/profile', async ()=>{
       <div class="card p-4 md:p-8">
         <h1 class="text-xl md:text-2xl font-extrabold mb-1">Hồ sơ của tôi</h1>
         <p class="text-sm text-[--tx2] mb-5 md:mb-6">Username: <b>@${esc(currentProfile.username)}</b> <span class="text-xs">(không thể đổi)</span></p>
+
+        <div class="flex items-center gap-4 mb-5 pb-5 border-b" style="border-color:var(--bd)">
+          <div class="avatar-edit-wrap">
+            ${avatarHTML(currentProfile, 'avatar avatar-xl')}
+            <label class="avatar-edit-btn" title="Đổi ảnh đại diện">
+              📷
+              <input type="file" id="avatar-input-2" accept="image/png,image/jpeg,image/webp" style="display:none">
+            </label>
+          </div>
+          <div class="flex-1">
+            <div class="font-bold text-lg">${esc(currentProfile.ingame_name)}</div>
+            <div class="text-xs text-[--tx2]">Nhấn 📷 để đổi ảnh đại diện</div>
+            <div class="text-xs text-[--tx2] mt-1">PNG/JPG/WEBP, tối đa 5MB</div>
+          </div>
+        </div>
+
         <form id="f-name" class="space-y-4">
           <div><label class="text-sm text-[--tx2]">Tên ingame</label>
             <input required name="ingame_name" value="${esc(currentProfile.ingame_name)}" class="mt-1"></div>
@@ -1307,6 +1476,29 @@ route('/profile', async ()=>{
         </form>
       </div>
     </div>`);
+
+  async function handleAvatarUpload(file){
+    if(!file) return;
+    if(!ALLOWED_TYPES.includes(file.type)) return toast('Chỉ chấp nhận ảnh PNG, JPG hoặc WEBP.','err');
+    if(file.size > 5*1024*1024) return toast('Ảnh đại diện tối đa 5MB.','err');
+    try{
+      toast('Đang tải ảnh lên...');
+      const ext = file.name.split('.').pop();
+      const path = `${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await sb.storage.from('avatars').upload(path, file, { upsert:false });
+      if(upErr) throw upErr;
+      const { data: pub } = sb.storage.from('avatars').getPublicUrl(path);
+      const newUrl = pub.publicUrl;
+      const { error: dbErr } = await sb.from('profiles').update({ avatar_url: newUrl }).eq('id', currentUser.id);
+      if(dbErr) throw dbErr;
+      await loadSession();
+      toast('Đã cập nhật ảnh đại diện!');
+      resolveRoute();
+    }catch(err){ toast('Lỗi: '+err.message,'err'); }
+  }
+
+  const av1 = document.getElementById('avatar-input-2');
+  if(av1) av1.addEventListener('change', (e)=> handleAvatarUpload(e.target.files[0]));
 
   document.getElementById('f-name').onsubmit = async (e)=>{
     e.preventDefault();
@@ -1365,7 +1557,7 @@ route('/my-records', async ()=>{
 route('/admin/records', async ()=>{
   if(!isModOrAdmin()){ toast('Bạn không có quyền truy cập.','err'); return navigate('/'); }
   const { data: pending, error } = await sb.from('records')
-    .select('id,time_ms,car,pet,evidence_url,note,submitted_at,maps(name,slug,difficulty),profiles!records_user_id_fkey(ingame_name,username)')
+    .select('id,time_ms,car,pet,evidence_url,note,submitted_at,maps(name,slug,difficulty),profiles!records_user_id_fkey(ingame_name,username,avatar_url)')
     .eq('status','pending')
     .order('submitted_at',{ascending:true});
   if(error) throw error;
@@ -1382,8 +1574,9 @@ route('/admin/records', async ()=>{
                   <span class="font-bold text-base md:text-lg">${esc(r.maps.name)}</span>
                   <span class="star-inline" style="color:var(--gold)">${stars(r.maps.difficulty)}</span>
                 </div>
-                <div class="text-xs md:text-sm text-[--tx2] mb-1">
-                  Người gửi: <b class="text-white">${userLink(r.profiles?.username, r.profiles?.ingame_name)}</b> (@${esc(r.profiles?.username||'?')})
+                <div class="flex items-center gap-2 mb-1">
+                  ${avatarHTML(r.profiles, 'avatar avatar-sm')}
+                  <span class="text-xs md:text-sm text-[--tx2]">Người gửi: <b class="text-white">${userLink(r.profiles?.username, r.profiles?.ingame_name)}</b></span>
                 </div>
                 <div class="text-xs md:text-sm text-[--tx2] mb-1">
                   Xe: <b class="text-white">${esc(r.car||'—')}</b> · Pet: <b class="text-white">${esc(r.pet||'—')}</b>
@@ -1677,8 +1870,13 @@ function memberRow(m){
   const isSelf = currentUser && m.id===currentUser.id;
   return `<tr class="border-b" style="border-color:var(--bd)">
     <td class="p-2 md:p-3">
-      <div class="font-semibold text-xs md:text-sm">${esc(m.ingame_name)}</div>
-      <div class="text-[10px] md:text-xs text-[--tx2]">@${esc(m.username)}</div>
+      <div class="flex items-center gap-2">
+        ${avatarHTML(m, 'avatar avatar-sm')}
+        <div class="min-w-0">
+          <div class="font-semibold text-xs md:text-sm truncate">${esc(m.ingame_name)}</div>
+          <div class="text-[10px] md:text-xs text-[--tx2]">@${esc(m.username)}</div>
+        </div>
+      </div>
     </td>
     <td class="p-2 md:p-3">
       <select class="role-select !py-1 !px-2 text-xs md:text-sm !w-auto" data-uid="${m.id}" ${isSelf?'disabled title="Không thể tự đổi vai trò"':''}>
