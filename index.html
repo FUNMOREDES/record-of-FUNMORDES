@@ -740,10 +740,50 @@ route('/map/:slug', async (p)=>{
         <div class="w-full md:w-auto">${currentUser?`<a onclick="navigate('/submit-record?map=${esc(map.slug)}')" class="btn-p w-full md:w-auto text-sm">Gửi REC cho map này</a>`:`<a onclick="navigate('/login')" class="btn-s w-full md:w-auto text-sm">Đăng nhập để gửi REC</a>`}</div>
       </div>
     </div>
-    ${recordsCategoryHTML('🅣 Kỷ lục xe T', ranksT)}
-    ${recordsCategoryHTML('🅐 Kỷ lục xe A', ranksA)}
+    <div class="flex flex-wrap gap-2 mb-4 md:mb-6" id="cat-filter">
+      <a class="btn-s text-xs md:text-sm !py-1.5 !px-3 cat-filter-btn" data-filter="all" style="background:var(--blue);color:#0a0a0a;border-color:var(--blue)">Tất cả</a>
+      <a class="btn-s text-xs md:text-sm !py-1.5 !px-3 cat-filter-btn" data-filter="A">Xe A</a>
+      <a class="btn-s text-xs md:text-sm !py-1.5 !px-3 cat-filter-btn" data-filter="T">Xe T</a>
+    </div>
+    <div id="cat-section-T">${recordsCategoryHTML('🅣 Kỷ lục xe T', ranksT)}</div>
+    <div id="cat-section-A">${recordsCategoryHTML('🅐 Kỷ lục xe A', ranksA)}</div>
+    ${statsCategoryHTML(ranksA, ranksT)}
     `);
+  const filterWrap = document.getElementById('cat-filter');
+  const secT = document.getElementById('cat-section-T');
+  const secA = document.getElementById('cat-section-A');
+  filterWrap.querySelectorAll('.cat-filter-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      filterWrap.querySelectorAll('.cat-filter-btn').forEach(b=>{ b.style.background=''; b.style.color=''; b.style.borderColor=''; });
+      btn.style.background='var(--blue)'; btn.style.color='#0a0a0a'; btn.style.borderColor='var(--blue)';
+      const f = btn.dataset.filter;
+      secT.classList.toggle('hidden', f==='A');
+      secA.classList.toggle('hidden', f==='T');
+    });
+  });
 });
+function statsOf(list){
+  if(!list.length) return null;
+  const times = list.map(r=>r.time_ms);
+  const avg = Math.round(times.reduce((a,b)=>a+b,0)/times.length);
+  return { avg, max: Math.max(...times), min: Math.min(...times), count: times.length };
+}
+function statsCategoryHTML(ranksA, ranksT){
+  const sA = statsOf(ranksA), sT = statsOf(ranksT);
+  const row = (label, keyA, keyT)=> `<tr class="border-b" style="border-color:var(--bd)"><td class="p-2 md:p-3 text-[--tx2]">${label}</td><td class="p-2 md:p-3 font-mono" style="color:var(--gold)">${sA?msToStr(sA[keyA]):'—'}</td><td class="p-2 md:p-3 font-mono" style="color:var(--gold)">${sT?msToStr(sT[keyT]):'—'}</td></tr>`;
+  return `<div class="mb-6 md:mb-8">
+    <h2 class="text-lg md:text-xl font-bold mb-3 md:mb-4">📊 Phân tích kỷ lục</h2>
+    <div class="card overflow-hidden"><div class="table-wrap"><table class="w-full text-sm">
+      <thead><tr class="text-left text-[--tx2] border-b" style="border-color:var(--bd)"><th class="p-2 md:p-3">Chỉ số</th><th class="p-2 md:p-3">🅐 Xe A</th><th class="p-2 md:p-3">🅣 Xe T</th></tr></thead>
+      <tbody>
+        ${row('Trung bình','avg','avg')}
+        ${row('Cao nhất (chậm nhất)','max','max')}
+        ${row('Thấp nhất (nhanh nhất)','min','min')}
+        <tr><td class="p-2 md:p-3 text-[--tx2]">Số kỷ lục</td><td class="p-2 md:p-3">${sA?sA.count:0}</td><td class="p-2 md:p-3">${sT?sT.count:0}</td></tr>
+      </tbody>
+    </table></div></div>
+  </div>`;
+}
 function recordsCategoryHTML(title, list){
   const top3 = list.slice(0,3);
   return `<div class="mb-6 md:mb-8">
