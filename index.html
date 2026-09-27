@@ -382,12 +382,24 @@ route('/register', async ()=>{
 
 // ---------- TRANG CHỦ ----------
 route('/', async ()=>{
-  const [{count:mapCount}, {count:memberCount}, {count:recCount}, {data:latest}] = await Promise.all([
+  const [{count:mapCount}, {count:memberCount}, {count:recCount}, {data:latest}, {data:topMaps}] = await Promise.all([
     sb.from('maps').select('*',{count:'exact',head:true}).eq('is_active',true),
     sb.from('profiles').select('*',{count:'exact',head:true}),
     sb.from('records').select('*',{count:'exact',head:true}).eq('status','approved'),
-    sb.from('records').select('time_ms,submitted_at,maps(name,slug),profiles!records_user_id_fkey(ingame_name)').eq('status','approved').order('submitted_at',{ascending:false}).limit(5)
+    sb.from('records').select('time_ms,submitted_at,maps(name,slug),profiles!records_user_id_fkey(ingame_name)').eq('status','approved').order('submitted_at',{ascending:false}).limit(5),
+    sb.from('maps').select('id,name,slug,thumbnail_url,difficulty,view_count').eq('is_active',true).order('view_count',{ascending:false}).limit(3)
   ]);
+
+  // Lấy best record (top 1) cho từng map nổi bật
+  const topIds = (topMaps||[]).map(m=>m.id);
+  let bestByMap = {};
+  if(topIds.length){
+    const { data: ranks } = await sb.from('map_rankings')
+      .select('map_id,time_ms,rank,ingame_name')
+      .in('map_id', topIds).eq('rank',1);
+    (ranks||[]).forEach(r=> bestByMap[r.map_id]=r);
+  }
+
   layout(`
     <section class="rounded-2xl p-6 md:p-10 mb-6 md:mb-10 card" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
       <h1 class="text-2xl md:text-5xl font-extrabold mb-2">RACE. RECORD. <span style="color:var(--orange)">DOMINATE.</span></h1>
@@ -402,6 +414,15 @@ route('/', async ()=>{
       ${statCard('Thành viên', memberCount??0)}
       ${statCard('Kỷ lục', recCount??0)}
     </div>
+
+    ${(topMaps||[]).length ? `
+    <div class="mb-6 md:mb-10">
+      <h2 class="text-lg md:text-xl font-bold mb-3 md:mb-4">🔥 Map nổi bật</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-5">
+        ${topMaps.map((m,i)=>topMapCard(m, bestByMap[m.id], i+1)).join('')}
+      </div>
+    </div>` : ''}
+
     <h2 class="text-lg md:text-xl font-bold mb-3 md:mb-4">Kỷ lục mới nhất</h2>
     <div class="space-y-2">
       ${(latest||[]).length ? latest.map(r=>`
@@ -417,9 +438,29 @@ route('/', async ()=>{
 function statCard(label,val){ return `<div class="card p-3 md:p-5 text-center md:text-left"><div class="text-xl md:text-3xl font-extrabold" style="color:var(--blue)">${val}</div><div class="text-xs md:text-sm text-[--tx2] mt-1">${esc(label)}</div></div>`; }
 function emptyState(msg){ return `<div class="card p-8 md:p-10 text-center text-[--tx2] text-sm">${esc(msg)}</div>`; }
 
-// ---------- DANH SÁCH MAP ----------
-let allMapsCache = null;
+// Card map nổi bật ở trang chủ (có huy hiệu rank + số view)
+function topMapCard(m, best, rank){
+  const rankBadge = ['🥇','🥈','🥉'][rank-1] || `#${rank}`;
+  return `<div class="card overflow-hidden cursor-pointer group relative" onclick="navigate('/map/${esc(m.slug)}')">
+    <div class="aspect-video overflow-hidden relative" style="background:var(--bg2)">
+      ${m.thumbnail_url?`<img src="${esc(m.thumbnail_url)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">`:`<div class="w-full h-full flex items-center justify-center text-3xl md:text-4xl">🏁</div>`}
+      <span class="badge star-badge absolute top-2 right-2" style="background:var(--card);color:var(--gold)">${stars(m.difficulty)}</span>
+      <span class="absolute top-2 left-2 text-2xl md:text-3xl" style="text-shadow:0 2px 6px rgba(0,0,0,.8)">${rankBadge}</span>
+      <div class="absolute inset-x-0 bottom-0 h-2/3 pointer-events-none" style="background:linear-gradient(to top, rgba(8,11,18,.92), rgba(8,11,18,0))"></div>
+      <div class="absolute bottom-2 left-2 right-2">
+        <div class="font-bold text-white text-sm md:text-base leading-tight" style="text-shadow:0 1px 4px rgba(0,0,0,.8)">${esc(m.name)}</div>
+      </div>
+    </div>
+    <div class="p-2 md:p-3 flex justify-between items-center gap-2">
+      <div class="text-xs md:text-sm text-[--tx2] truncate min-w-0 flex-1">
+        ${best? `${esc(best.ingame_name||'?')} · <span class="font-mono" style="color:var(--gold)">${msToStr(best.time_ms)}</span>` : 'Chưa có kỷ lục'}
+      </div>
+      <div class="text-[10px] md:text-xs text-[--tx2] shrink-0">👁️ ${m.view_count||0}</div>
+    </div>
+  </div>`;
+}
 
+// ---------- DANH SÁCH MAP ----------
 route('/maps', async ()=> renderMaps(null));
 route('/maps/difficulty/:star', async (p)=> renderMaps(+p.star));
 async function renderMaps(difficulty){
@@ -430,8 +471,6 @@ async function renderMaps(difficulty){
   if(difficulty) q = q.eq('difficulty', difficulty);
   const { data: maps, error } = await q;
   if(error) throw error;
-
-  allMapsCache = maps;
 
   const ids = maps.map(m=>m.id);
   let bestByMap = {};
@@ -516,6 +555,14 @@ function mapCard(m,best){
 route('/map/:slug', async (p)=>{
   const { data: map, error } = await sb.from('maps').select('*').eq('slug',p.slug).single();
   if(error || !map) return render404();
+
+  // Tăng lượt xem (mỗi lần mở, không chặn UI). Dùng sessionStorage để tránh F5 spam.
+  const viewKey = 'viewed_map_' + p.slug;
+  if(!sessionStorage.getItem(viewKey)){
+    sessionStorage.setItem(viewKey, '1');
+    sb.rpc('increment_map_view', { map_slug: p.slug }).catch(()=>{});
+  }
+
   const { data: ranks, error:rerr } = await sb.from('map_rankings')
     .select('rank,time_ms,car,pet,ingame_name')
     .eq('map_id',map.id).order('rank').limit(50);
@@ -528,6 +575,7 @@ route('/map/:slug', async (p)=>{
           <div class="mb-2 star-inline" style="color:var(--gold)">${stars(map.difficulty)}</div>
           <h1 class="text-xl md:text-3xl font-extrabold">${esc(map.name)}</h1>
           <p class="text-sm md:text-base text-[--tx2] mt-2 max-w-xl">${esc(map.description||'')}</p>
+          <div class="text-xs md:text-sm text-[--tx2] mt-2">👁️ ${map.view_count||0} lượt xem</div>
         </div>
         <div class="w-full md:w-auto">
           ${currentUser
@@ -978,7 +1026,7 @@ route('/admin/maps', async ()=>{
         <div class="table-wrap">
           <table class="w-full text-sm">
             <thead><tr class="text-left text-[--tx2] border-b" style="border-color:var(--bd)">
-              <th class="p-2 md:p-3">Map</th><th class="p-2 md:p-3">Độ khó</th><th class="p-2 md:p-3 hide-mobile">Trạng thái</th><th class="p-2 md:p-3"></th>
+              <th class="p-2 md:p-3">Map</th><th class="p-2 md:p-3">Độ khó</th><th class="p-2 md:p-3 hide-mobile">Lượt xem</th><th class="p-2 md:p-3 hide-mobile">Trạng thái</th><th class="p-2 md:p-3"></th>
             </tr></thead>
             <tbody>
               ${maps.map(m=>`<tr class="border-b" style="border-color:var(--bd)">
@@ -987,12 +1035,13 @@ route('/admin/maps', async ()=>{
                   <span class="font-semibold text-xs md:text-sm">${esc(m.name)}</span>
                 </td>
                 <td class="p-2 md:p-3 star-inline" style="color:var(--gold)">${stars(m.difficulty)}</td>
+                <td class="p-2 md:p-3 hide-mobile text-xs md:text-sm">👁️ ${m.view_count||0}</td>
                 <td class="p-2 md:p-3 hide-mobile"><span class="badge" style="background:var(--bg2);color:${m.is_active?'var(--ok)':'var(--tx2)'}">${m.is_active?'Đang hiện':'Đã ẩn'}</span></td>
                 <td class="p-2 md:p-3 text-right whitespace-nowrap">
                   <button class="btn-s text-[10px] md:text-xs !py-1 !px-2 toggle-active" data-id="${m.id}" data-active="${m.is_active}">${m.is_active?'Ẩn':'Hiện'}</button>
                   <button class="btn-s text-[10px] md:text-xs !py-1 !px-2 delete-map" data-id="${m.id}" style="color:var(--err)">Xóa</button>
                 </td>
-              </tr>`).join('') || `<tr><td class="p-6 text-center text-[--tx2]" colspan="4">Chưa có map nào.</td></tr>`}
+              </tr>`).join('') || `<tr><td class="p-6 text-center text-[--tx2]" colspan="5">Chưa có map nào.</td></tr>`}
             </tbody>
           </table>
         </div>
