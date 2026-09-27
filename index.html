@@ -664,16 +664,23 @@ async function renderMaps(difficulty){
   const { data: maps, error } = await q;
   if(error) throw error;
   const ids = maps.map(m=>m.id);
-  let bestByMap = {};
+  let bestByMap = {}, bestTByMap = {}, bestAByMap = {};
   if(ids.length){
-    const { data: ranks } = await sb.from('map_rankings').select('map_id,time_ms,rank,ingame_name').in('map_id',ids).eq('rank',1);
-    (ranks||[]).forEach(r=> bestByMap[r.map_id]=r);
+    const { data: ranks } = await sb.from('map_rankings').select('map_id,time_ms,car,car_type,ingame_name').in('map_id',ids);
+    const isCarT = (car)=> !!(car && car.trim().toUpperCase().startsWith('T'));
+    const resolveType = (r)=> r.car_type || (isCarT(r.car) ? 'T' : 'A');
+    (ranks||[]).forEach(r=>{
+      if(!bestByMap[r.map_id] || r.time_ms < bestByMap[r.map_id].time_ms) bestByMap[r.map_id] = r;
+      const t = resolveType(r);
+      if(t==='T'){ if(!bestTByMap[r.map_id] || r.time_ms < bestTByMap[r.map_id].time_ms) bestTByMap[r.map_id] = r; }
+      else { if(!bestAByMap[r.map_id] || r.time_ms < bestAByMap[r.map_id].time_ms) bestAByMap[r.map_id] = r; }
+    });
   }
   const filters = [null, ...DIFFICULTIES];
   layout(`
     <div class="mb-4 md:mb-6"><div class="search-box" id="search-wrap"><span class="search-icon">🔍</span><input type="text" id="map-search" placeholder="Tìm kiếm map theo tên..." autocomplete="off"><button type="button" class="clear-btn" id="clear-search">✕</button></div></div>
     <div class="flex flex-wrap gap-2 mb-4 md:mb-6">${filters.map(f=>`<a onclick="navigate('${f?'/maps/difficulty/'+f:'/maps'}')" class="btn-s text-xs md:text-sm !py-1.5 !px-3" style="${(difficulty===f)?'background:var(--blue);color:#0a0a0a;border-color:var(--blue)':''}">${f?f+'⭐':'Tất cả'}</a>`).join('')}</div>
-    <div id="maps-grid" class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-5">${maps.length?maps.map(m=>mapCard(m,bestByMap[m.id])).join(''):emptyState('Không có map nào.')}</div>
+    <div id="maps-grid" class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-5">${maps.length?maps.map(m=>mapCard(m,bestByMap[m.id],bestTByMap[m.id],bestAByMap[m.id])).join(''):emptyState('Không có map nào.')}</div>
     <div id="no-result" class="hidden">${emptyState('Không tìm thấy map nào.')}</div>
   `);
   const searchInput = document.getElementById('map-search');
@@ -684,15 +691,16 @@ async function renderMaps(difficulty){
   function applySearch(){
     const kw = removeDiacritics(searchInput.value.trim());
     searchWrap.classList.toggle('has-value', searchInput.value.length > 0);
-    if(!kw){ grid.innerHTML = maps.length ? maps.map(m=>mapCard(m,bestByMap[m.id])).join('') : emptyState('Không có map nào.'); grid.classList.remove('hidden'); noResult.classList.add('hidden'); return; }
+    if(!kw){ grid.innerHTML = maps.length ? maps.map(m=>mapCard(m,bestByMap[m.id],bestTByMap[m.id],bestAByMap[m.id])).join('') : emptyState('Không có map nào.'); grid.classList.remove('hidden'); noResult.classList.add('hidden'); return; }
     const filtered = maps.filter(m => removeDiacritics(m.name).includes(kw));
-    if(filtered.length){ grid.innerHTML = filtered.map(m=>mapCard(m,bestByMap[m.id])).join(''); grid.classList.remove('hidden'); noResult.classList.add('hidden'); }
+    if(filtered.length){ grid.innerHTML = filtered.map(m=>mapCard(m,bestByMap[m.id],bestTByMap[m.id],bestAByMap[m.id])).join(''); grid.classList.remove('hidden'); noResult.classList.add('hidden'); }
     else { grid.innerHTML = ''; grid.classList.add('hidden'); noResult.classList.remove('hidden'); }
   }
   searchInput.addEventListener('input', applySearch);
   clearBtn.addEventListener('click', ()=>{ searchInput.value=''; applySearch(); searchInput.focus(); });
 }
-function mapCard(m,best){
+function mapCard(m,best,bestT,bestA){
+  const line = (label,rec)=> `<div class="truncate">${label} ${rec?`<span class="text-[--tx]">${esc(rec.ingame_name||'?')}</span> · <span class="font-mono" style="color:var(--gold)">${msToStr(rec.time_ms)}</span>`:'—'}</div>`;
   return `<div class="card overflow-hidden cursor-pointer group" onclick="navigate('/map/${esc(m.slug)}')">
     <div class="aspect-video overflow-hidden relative" style="background:var(--bg2)">
       ${m.thumbnail_url?`<img src="${esc(m.thumbnail_url)}" class="w-full h-full object-cover group-hover:scale-105 transition duration-300">`:`<div class="w-full h-full flex items-center justify-center text-3xl md:text-4xl">🏁</div>`}
@@ -700,7 +708,11 @@ function mapCard(m,best){
       <div class="absolute inset-x-0 bottom-0 h-2/3 pointer-events-none" style="background:linear-gradient(to top, rgba(8,11,18,.92), rgba(8,11,18,0))"></div>
       <div class="absolute bottom-2 left-2 right-2"><div class="font-bold text-white text-sm md:text-base leading-tight" style="text-shadow:0 1px 4px rgba(0,0,0,.8)">${esc(m.name)}</div></div>
     </div>
-    <div class="p-2 md:p-3"><div class="text-xs md:text-sm text-[--tx2] truncate">${best?`${esc(best.ingame_name||'?')} · <span class="font-mono" style="color:var(--gold)">${msToStr(best.time_ms)}</span>`:'Chưa có kỷ lục'}</div></div>
+    <div class="p-2 md:p-3 space-y-0.5 text-[10px] md:text-xs text-[--tx2]">
+      ${line('🏆 Chung:',best)}
+      ${line('🅣 Xe T:',bestT)}
+      ${line('🅐 Xe A:',bestA)}
+    </div>
   </div>`;
 }
 
