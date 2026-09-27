@@ -412,12 +412,27 @@ route('/', async ()=>{
   }
 
   layout(`
-    <section class="rounded-2xl p-6 md:p-10 mb-6 md:mb-10 card" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
-      <h1 class="text-2xl md:text-5xl font-extrabold mb-2">RACE. RECORD. <span style="color:var(--orange)">DOMINATE.</span></h1>
-      <p class="text-sm md:text-lg text-[--tx2] mb-5 md:mb-6">${esc(CLAN_SLOGAN)}</p>
-      <div class="flex flex-wrap gap-2 md:gap-3">
-        <a onclick="navigate('/maps')" class="btn-p text-sm">Khám phá bản đồ</a>
-        <a onclick="navigate('/submit-record')" class="btn-s text-sm">Gửi kỷ lục</a>
+      <section class="rounded-2xl mb-6 md:mb-10 card overflow-hidden relative" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
+      <!-- Ảnh nền mờ -->
+      <div class="absolute inset-0 pointer-events-none" style="
+        background-image:url('ĐƯỜNG_DẪN_ẢNH_CỦA_BẠN');
+        background-size:cover;
+        background-position:center;
+        opacity:0.18;
+        filter:blur(2px);
+        transform:scale(1.05);
+      "></div>
+      <!-- Lớp gradient phủ trên để chữ dễ đọc -->
+      <div class="absolute inset-0 pointer-events-none" style="background:linear-gradient(135deg, rgba(14,20,32,.85), rgba(18,27,42,.65))"></div>
+
+      <!-- Nội dung -->
+      <div class="relative z-10 p-6 md:p-10">
+        <h1 class="text-2xl md:text-5xl font-extrabold mb-2">RACE. RECORD. <span style="color:var(--orange)">DOMINATE.</span></h1>
+        <p class="text-sm md:text-lg text-[--tx2] mb-5 md:mb-6">${esc(CLAN_SLOGAN)}</p>
+        <div class="flex flex-wrap gap-2 md:gap-3">
+          <a onclick="navigate('/maps')" class="btn-p text-sm">Khám phá bản đồ</a>
+          <a onclick="navigate('/submit-record')" class="btn-s text-sm">Gửi kỷ lục</a>
+        </div>
       </div>
     </section>
     <div class="grid grid-cols-3 gap-2 md:gap-4 mb-6 md:mb-10">
