@@ -729,6 +729,19 @@ route('/admin/members', async ()=>{
       toast('Đã cập nhật trạng thái.'); resolveRoute();
     };
   });
+  document.querySelectorAll('.reset-pass').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const p1 = prompt(`Mật khẩu mới cho ${btn.dataset.name} (tối thiểu 6 ký tự):`);
+      if(!p1) return; // bấm Cancel hoặc để trống
+      if(p1.length < 6) return toast('Mật khẩu phải có ít nhất 6 ký tự.','err');
+      const { error } = await sb.rpc('admin_reset_password', {
+        target_user_id: btn.dataset.uid,
+        new_password: p1
+      });
+      if(error) return toast(error.message,'err');
+      toast(`Đã đặt lại mật khẩu cho ${btn.dataset.name}. Hãy báo mật khẩu mới cho họ.`);
+    };
+  });
 });
 function memberRow(m){
   const isSelf = currentUser && m.id===currentUser.id;
@@ -745,10 +758,11 @@ function memberRow(m){
     <td class="p-3">
       <span class="badge" style="background:var(--bg2);color:${m.status==='active'?'var(--ok)':'var(--err)'}">${m.status==='active'?'Hoạt động':'Đã khóa'}</span>
     </td>
-    <td class="p-3">
+    <td class="p-3 whitespace-nowrap">
       <button class="status-toggle btn-s text-xs" data-uid="${m.id}" data-status="${m.status}" ${isSelf?'disabled':''}>
         ${m.status==='active'?'Khóa':'Mở khóa'}
       </button>
+      <button class="reset-pass btn-s text-xs" data-uid="${m.id}" data-name="${esc(m.ingame_name)}">Đặt lại MK</button>
     </td>
   </tr>`;
 }
