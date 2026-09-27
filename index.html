@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -46,6 +45,13 @@
   @media(min-width:768px){.star-badge{font-size:18px}}
   .star-inline{font-size:15px;line-height:1}
   @media(min-width:768px){.star-inline{font-size:20px}}
+  /* Search box */
+  .search-box{position:relative}
+  .search-box input{padding-left:2.5rem}
+  .search-box .search-icon{position:absolute;left:.75rem;top:50%;transform:translateY(-50%);color:var(--tx2);pointer-events:none}
+  .search-box .clear-btn{position:absolute;right:.5rem;top:50%;transform:translateY(-50%);color:var(--tx2);cursor:pointer;padding:.25rem;border-radius:6px;display:none}
+  .search-box .clear-btn:hover{background:var(--card-h);color:var(--tx)}
+  .search-box.has-value .clear-btn{display:block}
 </style>
 </head>
 <body>
@@ -103,6 +109,11 @@ function slugify(str){
     .toLowerCase().trim()
     .replace(/[^a-z0-9\s-]/g,'')
     .replace(/\s+/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'');
+}
+
+// Bỏ dấu tiếng Việt để tìm kiếm không dấu
+function removeDiacritics(str){
+  return (str||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/gi, d=>d==='đ'?'d':'D').toLowerCase();
 }
 
 // ---------- Storage ----------
@@ -407,6 +418,8 @@ function statCard(label,val){ return `<div class="card p-3 md:p-5 text-center md
 function emptyState(msg){ return `<div class="card p-8 md:p-10 text-center text-[--tx2] text-sm">${esc(msg)}</div>`; }
 
 // ---------- DANH SÁCH MAP ----------
+let allMapsCache = null;
+
 route('/maps', async ()=> renderMaps(null));
 route('/maps/difficulty/:star', async (p)=> renderMaps(+p.star));
 async function renderMaps(difficulty){
@@ -418,6 +431,8 @@ async function renderMaps(difficulty){
   const { data: maps, error } = await q;
   if(error) throw error;
 
+  allMapsCache = maps;
+
   const ids = maps.map(m=>m.id);
   let bestByMap = {};
   if(ids.length){
@@ -428,14 +443,58 @@ async function renderMaps(difficulty){
   // Filter ưu tiên sao cao trước: 7 -> 2
   const filters=[null,7,6,5,4,3,2];
   layout(`
+    <div class="mb-4 md:mb-6">
+      <div class="search-box" id="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="map-search" placeholder="Tìm kiếm map theo tên..." autocomplete="off">
+        <button type="button" class="clear-btn" id="clear-search" title="Xóa">✕</button>
+      </div>
+    </div>
     <div class="flex flex-wrap gap-2 mb-4 md:mb-6">
       ${filters.map(f=>`<a onclick="navigate('${f?'/maps/difficulty/'+f:'/maps'}')"
         class="btn-s text-xs md:text-sm !py-1.5 !px-3" style="${(difficulty===f)?'background:var(--blue);color:#0a0a0a;border-color:var(--blue)':''}">
         ${f?f+'⭐':'Tất cả'}</a>`).join('')}
     </div>
-    <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-5">
+    <div id="maps-grid" class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 md:gap-5">
       ${maps.length ? maps.map(m=>mapCard(m,bestByMap[m.id])).join('') : emptyState('Không có map nào ở mức độ khó này.')}
-    </div>`);
+    </div>
+    <div id="no-result" class="hidden">${emptyState('Không tìm thấy map nào khớp với từ khóa.')}</div>
+  `);
+
+  // Gắn sự kiện tìm kiếm
+  const searchInput = document.getElementById('map-search');
+  const searchWrap = document.getElementById('search-wrap');
+  const clearBtn = document.getElementById('clear-search');
+  const grid = document.getElementById('maps-grid');
+  const noResult = document.getElementById('no-result');
+
+  function applySearch(){
+    const kw = removeDiacritics(searchInput.value.trim());
+    searchWrap.classList.toggle('has-value', searchInput.value.length > 0);
+    if(!kw){
+      grid.innerHTML = maps.length ? maps.map(m=>mapCard(m,bestByMap[m.id])).join('') : emptyState('Không có map nào ở mức độ khó này.');
+      grid.classList.remove('hidden');
+      noResult.classList.add('hidden');
+      return;
+    }
+    const filtered = maps.filter(m => removeDiacritics(m.name).includes(kw));
+    if(filtered.length){
+      grid.innerHTML = filtered.map(m=>mapCard(m,bestByMap[m.id])).join('');
+      grid.classList.remove('hidden');
+      noResult.classList.add('hidden');
+    } else {
+      grid.innerHTML = '';
+      grid.classList.add('hidden');
+      noResult.classList.remove('hidden');
+    }
+  }
+
+  searchInput.addEventListener('input', applySearch);
+  clearBtn.addEventListener('click', ()=>{
+    searchInput.value = '';
+    applySearch();
+    searchInput.focus();
+  });
 }
 function mapCard(m,best){
   return `<div class="card overflow-hidden cursor-pointer group" onclick="navigate('/map/${esc(m.slug)}')">
@@ -1123,4 +1182,3 @@ function memberRow(m){
 </script>
 </body>
 </html>
-```
