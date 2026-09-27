@@ -728,6 +728,7 @@ route('/map/:slug', async (p)=>{
   const resolveType = (r)=> r.car_type || (isCarT(r.car) ? 'T' : 'A');
   const ranksT = (ranks||[]).filter(r=>resolveType(r)==='T').map((r,i)=>({...r, localRank:i+1}));
   const ranksA = (ranks||[]).filter(r=>resolveType(r)==='A').map((r,i)=>({...r, localRank:i+1}));
+  const ranksAll = (ranks||[]).map((r,i)=>({...r, localRank:i+1, __type:resolveType(r)}));
   layout(`
     <div class="card p-4 md:p-8 mb-6 md:mb-8">
       <div class="flex flex-col md:flex-row justify-between items-start gap-4">
@@ -745,11 +746,13 @@ route('/map/:slug', async (p)=>{
       <a class="btn-s text-xs md:text-sm !py-1.5 !px-3 cat-filter-btn" data-filter="A">Xe A</a>
       <a class="btn-s text-xs md:text-sm !py-1.5 !px-3 cat-filter-btn" data-filter="T">Xe T</a>
     </div>
-    <div id="cat-section-T">${recordsCategoryHTML('🅣 Kỷ lục xe T', ranksT)}</div>
-    <div id="cat-section-A">${recordsCategoryHTML('🅐 Kỷ lục xe A', ranksA)}</div>
+    <div id="cat-section-all">${mergedRecordsHTML('🏆 Tất cả kỷ lục', ranksAll)}</div>
+    <div id="cat-section-T" class="hidden">${recordsCategoryHTML('🅣 Kỷ lục xe T', ranksT)}</div>
+    <div id="cat-section-A" class="hidden">${recordsCategoryHTML('🅐 Kỷ lục xe A', ranksA)}</div>
     ${statsCategoryHTML(ranksA, ranksT)}
     `);
   const filterWrap = document.getElementById('cat-filter');
+  const secAll = document.getElementById('cat-section-all');
   const secT = document.getElementById('cat-section-T');
   const secA = document.getElementById('cat-section-A');
   filterWrap.querySelectorAll('.cat-filter-btn').forEach(btn=>{
@@ -757,11 +760,23 @@ route('/map/:slug', async (p)=>{
       filterWrap.querySelectorAll('.cat-filter-btn').forEach(b=>{ b.style.background=''; b.style.color=''; b.style.borderColor=''; });
       btn.style.background='var(--blue)'; btn.style.color='#0a0a0a'; btn.style.borderColor='var(--blue)';
       const f = btn.dataset.filter;
-      secT.classList.toggle('hidden', f==='A');
-      secA.classList.toggle('hidden', f==='T');
+      secAll.classList.toggle('hidden', f!=='all');
+      secT.classList.toggle('hidden', f!=='T');
+      secA.classList.toggle('hidden', f!=='A');
     });
   });
 });
+function mergedRecordsHTML(title, list){
+  const top3 = list.slice(0,3);
+  return `<div class="mb-6 md:mb-8">
+    <h2 class="text-lg md:text-xl font-bold mb-3 md:mb-4">${title}</h2>
+    ${top3.length?`<div class="grid grid-cols-3 gap-2 md:gap-4 mb-4 md:mb-6">${top3.map((r,i)=>podium(r,i+1)).join('')}</div>`:''}
+    <div class="card overflow-hidden"><div class="table-wrap"><table class="w-full text-sm">
+      <thead><tr class="text-left text-[--tx2] border-b" style="border-color:var(--bd)"><th class="p-2 md:p-3">Hạng</th><th class="p-2 md:p-3">Thành viên</th><th class="p-2 md:p-3">Loại</th><th class="p-2 md:p-3">Xe</th><th class="p-2 md:p-3">Pet</th><th class="p-2 md:p-3">Thời gian</th></tr></thead>
+      <tbody>${list.map(r=>`<tr class="border-b" style="border-color:var(--bd)"><td class="p-2 md:p-3 font-bold">${r.localRank<=3?['🥇','🥈','🥉'][r.localRank-1]:r.localRank}</td><td class="p-2 md:p-3"><div class="flex items-center gap-2">${avatarHTML({ingame_name:r.ingame_name,avatar_url:r.avatar_url},'avatar avatar-sm')}${userLink(r.username,r.ingame_name)}</div></td><td class="p-2 md:p-3"><span class="badge" style="background:var(--bg2);color:${r.__type==='T'?'var(--blue)':'var(--orange)'}">${r.__type==='T'?'🅣 T':'🅐 A'}</span></td><td class="p-2 md:p-3">${esc(r.car||'—')}</td><td class="p-2 md:p-3">${esc(r.pet||'—')}</td><td class="p-2 md:p-3 font-mono" style="color:var(--gold)">${msToStr(r.time_ms)}</td></tr>`).join('')||`<tr><td class="p-6 text-center text-[--tx2]" colspan="6">Chưa có kỷ lục nào.</td></tr>`}</tbody>
+    </table></div></div>
+  </div>`;
+}
 function statsOf(list){
   if(!list.length) return null;
   const times = list.map(r=>r.time_ms);
