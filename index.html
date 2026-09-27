@@ -641,32 +641,28 @@ function podium(r,pos){
 
 // ---------- BẢNG XẾP HẠNG THÀNH VIÊN ----------
 route('/leaderboard', async ()=>{
-  // Lấy tất cả profiles
   const { data: profiles, error:perr } = await sb.from('profiles')
     .select('id,username,ingame_name,role,status,joined_at')
     .order('joined_at',{ascending:true});
-  if(perr) throw error;
+  if(perr) throw perr;
 
-  // Lấy tất cả records approved kèm thông tin map
   const { data: recs, error:rerr } = await sb.from('records')
     .select('id,user_id,time_ms,submitted_at,map_id,maps(name,slug,difficulty)')
     .eq('status','approved');
   if(rerr) throw rerr;
 
-  // Lấy map_rankings rank=1 để biết ai đang giữ kỷ lục top 1 map nào
   const { data: top1Ranks } = await sb.from('map_rankings')
     .select('map_id,user_id,time_ms,ingame_name,rank')
     .eq('rank',1);
 
-  // Tổng hợp theo user
   const stats = {};
   (profiles||[]).forEach(p=>{
     stats[p.id] = {
       profile: p,
       totalRecords: 0,
-      totalMaps: new Set(),     // số map có kỷ lục (đã approved)
-      top1Count: 0,             // số map đang giữ top 1
-      bestTimeSum: 0,           // tổng best time (chỉ tính map đang top 1 - để so sánh)
+      totalMaps: new Set(),
+      top1Count: 0,
+      bestTimeSum: 0,
       lastSubmit: null
     };
   });
@@ -678,7 +674,6 @@ route('/leaderboard', async ()=>{
       stats[r.user_id].lastSubmit = r.submitted_at;
     }
   });
-  // Đếm top1 + tính điểm
   (top1Ranks||[]).forEach(r=>{
     if(stats[r.user_id]){
       stats[r.user_id].top1Count += 1;
@@ -686,9 +681,8 @@ route('/leaderboard', async ()=>{
     }
   });
 
-  // Sắp xếp: theo top1Count giảm dần, rồi totalRecords giảm dần, rồi tên A-Z
   const ranked = Object.values(stats)
-    .filter(s => s.totalRecords > 0) // chỉ xếp hạng người có đóng góp
+    .filter(s => s.totalRecords > 0)
     .sort((a,b)=>{
       if(b.top1Count !== a.top1Count) return b.top1Count - a.top1Count;
       if(b.totalRecords !== a.totalRecords) return b.totalRecords - a.totalRecords;
@@ -753,7 +747,6 @@ route('/user/:username', async (p)=>{
     .select('*').eq('username', username).single();
   if(perr || !profile) return render404();
 
-  // Lấy tất cả records approved của user này (kèm map info)
   const { data: recs, error:rerr } = await sb.from('records')
     .select('id,time_ms,car,pet,submitted_at,approved_at,maps(id,name,slug,difficulty,thumbnail_url)')
     .eq('user_id', profile.id)
@@ -761,7 +754,6 @@ route('/user/:username', async (p)=>{
     .order('submitted_at',{ascending:false});
   if(rerr) throw rerr;
 
-  // Lấy map_rankings để biết user này đang top 1 map nào
   const { data: top1Ranks } = await sb.from('map_rankings')
     .select('map_id,time_ms,rank')
     .eq('user_id', profile.id)
@@ -769,7 +761,6 @@ route('/user/:username', async (p)=>{
   const top1Set = new Set((top1Ranks||[]).map(r=>r.map_id));
   const top1MapCount = top1Set.size;
 
-  // Tổng hợp theo map: lấy kỷ lục tốt nhất của user trên mỗi map
   const byMap = {};
   (recs||[]).forEach(r=>{
     const mid = r.maps.id;
@@ -788,7 +779,6 @@ route('/user/:username', async (p)=>{
   const uniqueMaps = mapList.length;
   const firstSubmit = recs && recs.length ? recs[recs.length-1].submitted_at : null;
 
-  // Đếm theo độ khó
   const byDiff = {};
   DIFFICULTIES.forEach(d => byDiff[d]=0);
   mapList.forEach(m=>{ if(byDiff[m.map.difficulty]!==undefined) byDiff[m.map.difficulty]++; });
@@ -797,7 +787,6 @@ route('/user/:username', async (p)=>{
   const roleColor = {admin:'var(--orange)', moderator:'var(--blue)', member:'var(--tx2)'};
 
   layout(`
-    <!-- Header profile -->
     <div class="card p-4 md:p-8 mb-6 md:mb-8">
       <div class="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6">
         <div class="w-16 h-16 md:w-24 md:h-24 rounded-full flex items-center justify-center text-3xl md:text-5xl font-extrabold shrink-0" style="background:linear-gradient(135deg,var(--blue),var(--orange));color:#0a0a0a">
@@ -821,7 +810,6 @@ route('/user/:username', async (p)=>{
       ${firstSubmit ? `<div class="text-xs md:text-sm text-[--tx2] mt-4">Thành viên từ: ${new Date(profile.joined_at||firstSubmit).toLocaleDateString('vi-VN')}</div>` : ''}
     </div>
 
-    <!-- Phân bổ theo độ khó -->
     ${totalRecords > 0 ? `
     <div class="card p-4 md:p-6 mb-6 md:mb-8">
       <h2 class="text-base md:text-lg font-bold mb-3 md:mb-4">📊 Kỷ lục theo độ khó</h2>
@@ -836,7 +824,6 @@ route('/user/:username', async (p)=>{
       </div>
     </div>` : ''}
 
-    <!-- Danh sách kỷ lục theo map -->
     <h2 class="text-lg md:text-xl font-bold mb-3 md:mb-4">🗺️ Kỷ lục theo map (${uniqueMaps})</h2>
     ${mapList.length ? `
     <div class="space-y-2">
@@ -1337,7 +1324,13 @@ route('/admin/maps', async ()=>{
               pattern="^[a-z0-9]+(-[a-z0-9]+)*$" title="Chỉ chữ thường, số, gạch ngang"></div>
           <div><label class="text-sm text-[--tx2]">Độ khó</label>
             <select required name="difficulty" class="mt-1">
-              ${DIFFICULTIES.map(n=>`<option value="${n}">${n}⭐</option>`).join('')}
+              <option value="7">7⭐</option>
+              <option value="6">6⭐</option>
+              <option value="5">5⭐</option>
+              <option value="4">4⭐</option>
+              <option value="3">3⭐</option>
+              <option value="2">2⭐</option>
+              <option value="1">1⭐</option>
             </select></div>
           <div><label class="text-sm text-[--tx2]">Mô tả</label>
             <textarea name="description" rows="2" class="mt-1"></textarea></div>
@@ -1387,10 +1380,14 @@ route('/admin/maps', async ()=>{
     const btn = e.target.querySelector('button'); btn.disabled=true; btn.textContent='Đang lưu...';
     try{
       const fd = new FormData(e.target);
+      const difficulty = +fd.get('difficulty');
+      if(![1,2,3,4,5,6,7].includes(difficulty)){
+        throw new Error('Độ khó không hợp lệ. Chỉ chấp nhận 1-7 sao.');
+      }
       const insert = {
         name: fd.get('name'),
         slug: fd.get('slug'),
-        difficulty: +fd.get('difficulty'),
+        difficulty: difficulty,
         description: fd.get('description') || null,
         is_active: fd.get('is_active')==='on',
         created_by: currentUser.id
@@ -1407,7 +1404,9 @@ route('/admin/maps', async ()=>{
       toast('Đã thêm map.');
       navigate('/admin/maps'); resolveRoute();
     }catch(err){
-      const msg = err.message.includes('duplicate key') ? 'Slug này đã tồn tại, hãy đổi slug khác.' : err.message;
+      let msg = err.message;
+      if(msg.includes('duplicate key')) msg = 'Slug này đã tồn tại, hãy đổi slug khác.';
+      if(msg.includes('check constraint')) msg = 'Lỗi: cột difficulty trong database giới hạn giá trị. Chạy SQL: ALTER TABLE maps DROP CONSTRAINT IF EXISTS maps_difficulty_check; ALTER TABLE maps ADD CONSTRAINT maps_difficulty_check CHECK (difficulty BETWEEN 1 AND 7);';
       toast(msg,'err'); btn.disabled=false; btn.textContent='Thêm map';
     }
   };
