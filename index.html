@@ -7,6 +7,11 @@
 <link rel="icon" type="image/jpg" href="./1790452658424_427855192085454370_5721502452398162612_4d5252365be6b5432cd023448cf62ec3.jpg">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script type="module">
+  import * as mediabunny from 'https://cdn.jsdelivr.net/npm/mediabunny@1/+esm';
+  window.mediabunny = mediabunny;
+  window.dispatchEvent(new Event('mediabunny-ready'));
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
@@ -120,6 +125,14 @@ a{cursor:pointer}
 }
 .feed-video-side video{width:100%;height:100%;max-height:70vh;object-fit:contain;background:#000;display:block}
 @media(max-width:767px){.feed-video-side{background:#000}.feed-video-side video{width:100%;max-height:60vh;object-fit:contain}}
+
+/* ===== Compress progress ===== */
+.compress-progress{display:none;margin-top:.6rem;padding:.6rem .8rem;background:var(--bg2);border:1px solid var(--bd);border-radius:10px}
+.compress-progress.active{display:block}
+.compress-progress .bar{height:6px;background:var(--bd);border-radius:6px;overflow:hidden;margin-top:.4rem}
+.compress-progress .bar-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--orange));width:0%;transition:width .2s}
+.compress-progress .label{font-size:.8rem;color:var(--tx2);display:flex;justify-content:space-between;gap:.5rem}
+.compress-progress .label b{color:var(--blue);white-space:nowrap}
 </style>
 </head>
 <body>
@@ -158,8 +171,8 @@ function fullDateTime(d){if(!d)return '';return new Date(d).toLocaleString('vi-V
 function fireRpc(fn,params){(async()=>{try{await sb.rpc(fn,params);}catch(e){}})();}
 
 const MAX_UPLOAD_MB=10;
-const MAX_VIDEO_MB=50;
-const MAX_COMMENT_MB=20;
+const MAX_VIDEO_MB=200;
+const MAX_COMMENT_MB=100;
 const ALLOWED_TYPES=['image/png','image/jpeg','image/jpg','image/webp'];
 const ALLOWED_VIDEO_TYPES=['video/mp4','video/webm','video/quicktime','video/ogg'];
 const ALLOWED_COMMENT_MEDIA=[
@@ -194,7 +207,6 @@ async function uploadImage(bucket,file,pathPrefix,maxMB){
 async function uploadRecordVideo(file, userId){
   if(!file || !file.size) return null;
   if(!ALLOWED_VIDEO_TYPES.includes(file.type)) throw new Error('Video chỉ nhận MP4, WEBM, MOV, OGG.');
-  if(file.size > MAX_VIDEO_MB*1024*1024) throw new Error(`Video vượt quá ${MAX_VIDEO_MB}MB.`);
   const ext = file.name.split('.').pop();
   const path = `${userId}/${crypto.randomUUID()}.${ext}`;
   const { error } = await sb.storage.from('record-videos').upload(path, file, { upsert:false });
@@ -215,6 +227,133 @@ async function uploadCommentMedia(file, userId){
 }
 
 function filePreview(inputEl,imgEl){inputEl.addEventListener('change',()=>{const f=inputEl.files[0];if(!f)return imgEl.classList.add('hidden');imgEl.src=URL.createObjectURL(f);imgEl.classList.remove('hidden');});}
+
+// ============ NÉN VIDEO TRÊN TRÌNH DUYỆT (Mediabunny) ============
+const VIDEO_TARGET_MB = 50;          // Ngưỡng mục tiêu cho video REC
+const VIDEO_FINAL_MAX_MB = 50;       // Giới hạn cứng sau khi nén — quá thì báo lỗi
+const COMMENT_VIDEO_MAX_SEC = 30;    // Video bình luận tối đa 30s
+const COMMENT_VIDEO_TARGET_MB = 30;
+
+const COMPRESS_PRESETS = {
+  rec: {
+    targetMB: VIDEO_TARGET_MB,
+    maxWidth: 1280, maxHeight: 720,
+    fps: 45, minFps: 30,
+    baseBitrate: 1_000_000,
+    audioBitrate: 96_000,
+    maxDuration: null,
+  },
+  comment: {
+    targetMB: COMMENT_VIDEO_TARGET_MB,
+    maxWidth: 1280, maxHeight: 720,
+    fps: 45, minFps: 30,
+    baseBitrate: 1_000_000,
+    audioBitrate: 96_000,
+    maxDuration: COMMENT_VIDEO_MAX_SEC,
+  },
+};
+
+async function ensureMediabunny(){
+  if(window.mediabunny) return window.mediabunny;
+  await new Promise(resolve=>{
+    const t = setTimeout(resolve, 10000);
+    window.addEventListener('mediabunny-ready', ()=>{ clearTimeout(t); resolve(); }, { once:true });
+  });
+  if(!window.mediabunny) throw new Error('Không tải được thư viện nén video (Mediabunny).');
+  return window.mediabunny;
+}
+
+async function probeVideo(sourceFile){
+  const m = await ensureMediabunny();
+  const input = new m.Input({ source: new m.BlobSource(sourceFile), formats: m.ALL_FORMATS });
+  const duration = await input.computeDuration();
+  const vTrack = await input.getPrimaryVideoTrack();
+  return {
+    duration,
+    width: vTrack?.displayWidth || 1280,
+    height: vTrack?.displayHeight || 720,
+  };
+}
+
+/**
+ * Nén video theo preset.
+ * - Nếu video đã thoả mãn (<=targetMB, <=720p, <=maxDuration): giữ nguyên.
+ * - Ngược lại: nén lần 1 ở 720p/45fps/~1Mbps.
+ * - Nếu vẫn > targetMB: nén lần 2 ở 720p/30fps và giảm bitrate.
+ * - Nếu vẫn > targetMB sau cùng: ném lỗi.
+ */
+async function compressVideo(sourceFile, presetKey, onProgress){
+  const m = await ensureMediabunny();
+  const preset = COMPRESS_PRESETS[presetKey];
+  if(!preset) throw new Error('Preset nén không hợp lệ.');
+
+  const meta = await probeVideo(sourceFile);
+  const duration = meta.duration;
+  const width = meta.width;
+  const height = meta.height;
+
+  const tooLarge = sourceFile.size > preset.targetMB * 1024 * 1024;
+  const tooLong = preset.maxDuration && duration > preset.maxDuration + 0.5;
+  const tooHighRes = width > preset.maxWidth || height > preset.maxHeight;
+
+  if(!tooLarge && !tooLong && !tooHighRes){
+    return {
+      blob: sourceFile, wasCompressed:false,
+      originalSize: sourceFile.size, finalSize: sourceFile.size,
+      duration, fps: preset.fps, bitrate: null,
+    };
+  }
+
+  const input = new m.Input({ source: new m.BlobSource(sourceFile), formats: m.ALL_FORMATS });
+  const useDuration = preset.maxDuration ? Math.min(duration, preset.maxDuration) : duration;
+  const targetBits = preset.targetMB * 1024 * 1024 * 8;
+  let videoBitrate = Math.floor(targetBits / Math.max(useDuration, 1)) - preset.audioBitrate;
+  videoBitrate = Math.max(300_000, Math.min(videoBitrate, preset.baseBitrate * 4));
+
+  const trimOpt = preset.maxDuration ? { start: 0, end: preset.maxDuration } : undefined;
+
+  // ==== Lần 1: fps = preset.fps ====
+  const out1 = new m.Output({ target: new m.BufferTarget(), format: new m.Mp4OutputFormat() });
+  const conv1 = await m.Conversion.init({
+    input, output: out1,
+    video: { bitrate: videoBitrate, width: Math.min(width, preset.maxWidth), height: Math.min(height, preset.maxHeight), fit:'contain', frameRate: preset.fps },
+    audio: { bitrate: preset.audioBitrate, numberOfChannels: 2, sampleRate: 44100 },
+    trim: trimOpt,
+  });
+  if(onProgress) conv1.onProgress = onProgress;
+  await conv1.execute();
+  let blob = new Blob([out1.target.buffer], { type: 'video/mp4' });
+  let usedFps = preset.fps;
+  let usedBitrate = videoBitrate;
+
+  // ==== Lần 2: nếu vẫn quá target → hạ xuống minFps và giảm bitrate ====
+  if(blob.size > preset.targetMB * 1024 * 1024 && preset.fps > preset.minFps){
+    const input2 = new m.Input({ source: new m.BlobSource(sourceFile), formats: m.ALL_FORMATS });
+    const newBitrate = Math.max(250_000, Math.floor(videoBitrate * 0.7));
+    const out2 = new m.Output({ target: new m.BufferTarget(), format: new m.Mp4OutputFormat() });
+    const conv2 = await m.Conversion.init({
+      input: input2, output: out2,
+      video: { bitrate: newBitrate, width: Math.min(width, preset.maxWidth), height: Math.min(height, preset.maxHeight), fit:'contain', frameRate: preset.minFps },
+      audio: { bitrate: preset.audioBitrate, numberOfChannels: 2, sampleRate: 44100 },
+      trim: trimOpt,
+    });
+    if(onProgress) conv2.onProgress = onProgress;
+    await conv2.execute();
+    blob = new Blob([out2.target.buffer], { type: 'video/mp4' });
+    usedFps = preset.minFps;
+    usedBitrate = newBitrate;
+  }
+
+  return {
+    blob,
+    wasCompressed: true,
+    originalSize: sourceFile.size,
+    finalSize: blob.size,
+    duration: useDuration,
+    fps: usedFps,
+    bitrate: usedBitrate,
+  };
+}
 
 // ============ COMMENTS ============
 const COMMENT_SELECT = 'id,record_id,user_id,parent_id,content,created_at,media_url,media_type,media_name,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url),comment_reactions(id,user_id,sticker_id,stickers(id,name,emoji,image_url))';
@@ -282,6 +421,10 @@ function commentSectionHTML(recordId, comments){
     ${currentUser ? `
       <div class="mt-3" data-composer="${recordId}">
         <div class="comment-media-preview-wrap hidden mb-2" id="cmp-${recordId}"></div>
+        <div class="compress-progress" id="ccp-${recordId}">
+          <div class="label"><span id="ccp-status-${recordId}">Đang xử lý video...</span><b id="ccp-percent-${recordId}">0%</b></div>
+          <div class="bar"><div class="bar-fill" id="ccp-fill-${recordId}"></div></div>
+        </div>
         <div class="flex items-center gap-1">
           ${avatarHTML(currentProfile,'avatar avatar-sm')}
           <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (gõ @ để nhắc thành viên)" data-record-id="${recordId}" maxlength="1000">
@@ -323,9 +466,19 @@ async function sendComment(recordId){
     input.value=''; delete input.dataset.parent; input.placeholder='Viết bình luận... (gõ @ để nhắc thành viên)';
     if(fileInput){ fileInput.value=''; fileInput._pendingFile = null; }
     if(previewWrap){ previewWrap.innerHTML=''; previewWrap.classList.add('hidden'); }
+    const ccp = document.getElementById(`ccp-${recordId}`);
+    if(ccp){ ccp.classList.remove('active'); ccpReset(recordId); }
     await refreshComments(recordId);
   }catch(err){ toast(err.message,'err'); }
   finally{ if(sendBtn){ sendBtn.disabled = false; sendBtn.textContent = 'Gửi'; } }
+}
+function ccpReset(recId){
+  const f = document.getElementById(`ccp-fill-${recId}`);
+  const p = document.getElementById(`ccp-percent-${recId}`);
+  const s = document.getElementById(`ccp-status-${recId}`);
+  if(f) f.style.width = '0%';
+  if(p) p.textContent = '0%';
+  if(s) s.textContent = 'Đang xử lý video...';
 }
 async function toggleCommentReaction(commentId, stickerId, recordId){
   if(!currentUser) return toast('Vui lòng đăng nhập.','err');
@@ -429,8 +582,8 @@ document.addEventListener('focusout', (e)=>{ if(e.target.matches?.('.comment-inp
 window.addEventListener('resize', ()=>{ if(mention.el) positionMention(); });
 window.addEventListener('scroll', ()=>{ if(mention.el) positionMention(); }, true);
 
-// ============ COMMENT MEDIA PICKER ============
-document.addEventListener('change', (e)=>{
+// ============ COMMENT MEDIA PICKER (có nén video) ============
+document.addEventListener('change', async (e)=>{
   const inp = e.target;
   if(!inp.matches?.('.comment-file-input')) return;
   const file = inp.files[0];
@@ -439,14 +592,71 @@ document.addEventListener('change', (e)=>{
   if(!file){ inp._pendingFile = null; if(wrap){ wrap.innerHTML=''; wrap.classList.add('hidden'); } return; }
   if(!ALLOWED_COMMENT_MEDIA.includes(file.type)){ toast('Định dạng file không được hỗ trợ.','err'); inp.value=''; return; }
   if(file.size > MAX_COMMENT_MB*1024*1024){ toast(`File vượt quá ${MAX_COMMENT_MB}MB.`,'err'); inp.value=''; return; }
-  inp._pendingFile = file;
+
   const type = detectMediaType(file.type);
+
+  // ===== VIDEO BÌNH LUẬN =====
+  if(type === 'video'){
+    const ccp = document.getElementById(`ccp-${recId}`);
+    const ccpStatus = document.getElementById(`ccp-status-${recId}`);
+    const ccpPercent = document.getElementById(`ccp-percent-${recId}`);
+    const ccpFill = document.getElementById(`ccp-fill-${recId}`);
+
+    // Kiểm tra thời lượng
+    try{
+      const meta = await probeVideo(file);
+      if(meta.duration > COMMENT_VIDEO_MAX_SEC + 0.5){
+        toast(`Video bình luận tối đa ${COMMENT_VIDEO_MAX_SEC} giây. Video của bạn: ${Math.round(meta.duration)}s.`, 'err');
+        inp.value=''; return;
+      }
+    }catch(err){
+      console.warn('Không đọc được metadata video:', err);
+    }
+
+    // Nén video
+    ccp.classList.add('active');
+    ccpStatus.textContent = 'Đang nén video...';
+    ccpPercent.textContent = '0%';
+    ccpFill.style.width = '0%';
+
+    try{
+      const result = await compressVideo(file, 'comment', (p)=>{
+        const percent = Math.round(p*100);
+        ccpPercent.textContent = percent + '%';
+        ccpFill.style.width = percent + '%';
+      });
+      const finalFile = new File(
+        [result.blob],
+        file.name.replace(/\.[^.]+$/, '') + '.mp4',
+        { type: 'video/mp4' }
+      );
+      inp._pendingFile = finalFile;
+      ccpStatus.innerHTML = result.wasCompressed
+        ? `✅ Đã nén: ${(result.originalSize/1024/1024).toFixed(1)}MB → ${(result.finalSize/1024/1024).toFixed(1)}MB`
+        : `✅ Video OK (${(result.finalSize/1024/1024).toFixed(1)}MB)`;
+      ccpPercent.textContent = '100%';
+      ccpFill.style.width = '100%';
+
+      const url = URL.createObjectURL(result.blob);
+      if(wrap){
+        wrap.innerHTML = `<div class="comment-media-preview"><span class="remove-media" data-rec="${recId}">✕</span><video src="${url}" controls></video></div>`;
+        wrap.classList.remove('hidden');
+      }
+    }catch(err){
+      console.error(err);
+      ccpStatus.innerHTML = `<span style="color:var(--err)">Nén thất bại: ${esc(err.message)}</span>`;
+      inp.value=''; inp._pendingFile = null;
+      return;
+    }
+    return;
+  }
+
+  // ===== ẢNH / GIF / FILE KHÁC =====
+  inp._pendingFile = file;
   let inner = '';
   const url = URL.createObjectURL(file);
   if(type === 'image' || type === 'gif'){
     inner = `<div class="comment-media-preview"><span class="remove-media" data-rec="${recId}">✕</span><img src="${url}" alt=""></div>`;
-  } else if(type === 'video'){
-    inner = `<div class="comment-media-preview"><span class="remove-media" data-rec="${recId}">✕</span><video src="${url}" controls></video></div>`;
   } else {
     inner = `<div class="comment-media-preview"><span class="remove-media" data-rec="${recId}">✕</span><div class="file-chip"><span>📎</span><span class="fname">${esc(file.name)}</span></div></div>`;
   }
@@ -461,6 +671,8 @@ document.addEventListener('click', (e)=>{
   if(inp){ inp.value=''; inp._pendingFile = null; }
   const wrap = document.getElementById(`cmp-${recId}`);
   if(wrap){ wrap.innerHTML=''; wrap.classList.add('hidden'); }
+  const ccp = document.getElementById(`ccp-${recId}`);
+  if(ccp){ ccp.classList.remove('active'); ccpReset(recId); }
 });
 
 // ============ DELEGATED COMMENT / RECORD ACTIONS ============
@@ -1472,7 +1684,7 @@ function notifCard(n, isUnread){
   return `<div class="card p-3 md:p-4 cursor-pointer notif-item" data-id="${n.id}" data-slug="${esc(n.maps.slug)}" data-unread="${isUnread}"><div class="flex justify-between items-start gap-3"><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1 flex-wrap"><span>${icon}</span><span class="font-semibold text-sm md:text-base" style="color:${color}">${title}</span>${isUnread?`<span class="badge text-[10px]" style="background:var(--err);color:white">Mới</span>`:''}</div><div class="text-sm truncate">Map: <b>${esc(n.maps.name)}</b></div><div class="text-xs md:text-sm text-[--tx2] truncate"><span class="font-mono" style="color:var(--gold)">${msToStr(n.time_ms)}</span>${n.car?` · Xe: <b>${esc(n.car)}</b>`:''}${n.pet?` · Pet: <b>${esc(n.pet)}</b>`:''}</div>${!isApproved&&n.rejection_reason?`<div class="text-xs md:text-sm mt-1" style="color:var(--err)">Lý do: ${esc(n.rejection_reason)}</div>`:''}<div class="text-[10px] md:text-xs text-[--tx2] mt-1">${timeStr}</div></div></div></div>`;
 }
 
-// ============ SUBMIT REC ============
+// ============ SUBMIT REC (có nén video) ============
 route('/submit-record', async (params)=>{
   if(!currentUser){ toast('Vui lòng đăng nhập.','err'); return navigate('/login'); }
   const presetSlug = params?._query?.map || null;
@@ -1489,10 +1701,14 @@ route('/submit-record', async (params)=>{
         <div><label class="text-sm text-[--tx2]">Thời gian (MM:SS:mm)</label><input required name="time_str" placeholder="01:25:35" class="mt-1 font-mono"></div>
         <div><label class="text-sm text-[--tx2]">Ảnh bằng chứng (tối đa ${MAX_UPLOAD_MB}MB)</label><input required type="file" name="evidence_file" id="evidence_file" accept="image/png,image/jpeg,image/webp" class="mt-1"><img id="evidence_preview" class="hidden mt-2 max-h-48 rounded-lg border" style="border-color:var(--bd)"></div>
         <div>
-          <label class="text-sm text-[--tx2]">Video kỷ lục (không bắt buộc, tối đa ${MAX_VIDEO_MB}MB)</label>
+          <label class="text-sm text-[--tx2]">Video kỷ lục (không bắt buộc)</label>
           <input type="file" name="video_file" id="video_file" accept="video/mp4,video/webm,video/quicktime,video/ogg" class="mt-1">
           <video id="video_preview" class="hidden mt-2 max-h-48 rounded-lg border w-full" style="border-color:var(--bd)" controls></video>
-          <p class="text-xs text-[--tx2] mt-1">Nếu có video, bài đăng sẽ hiển thị dạng 2 cột: video bên trái, thông tin bên phải.</p>
+          <p class="text-xs text-[--tx2] mt-1">Video sẽ tự động nén xuống 720p/45fps/1Mbps nếu cần. Nếu vượt ${VIDEO_TARGET_MB}MB sẽ tiếp tục hạ xuống 30fps. Sau khi nén vẫn vượt ${VIDEO_FINAL_MAX_MB}MB sẽ báo lỗi. Nếu có video, bài đăng sẽ hiển thị dạng 2 cột: video bên trái, thông tin bên phải.</p>
+          <div class="compress-progress" id="rec-compress">
+            <div class="label"><span id="rec-compress-status">Đang chuẩn bị...</span><b id="rec-compress-percent">0%</b></div>
+            <div class="bar"><div class="bar-fill" id="rec-compress-fill"></div></div>
+          </div>
         </div>
         <div><label class="text-sm text-[--tx2]">Ghi chú</label><textarea name="note" maxlength="500" class="mt-1" rows="2"></textarea></div>
         <label class="flex items-start gap-2 text-sm text-[--tx2]"><input required type="checkbox" name="confirm" class="mt-1 !w-auto">Tôi xác nhận thông tin chính xác.</label>
@@ -1500,16 +1716,75 @@ route('/submit-record', async (params)=>{
       </form>
     </div>`);
   filePreview(document.getElementById('evidence_file'), document.getElementById('evidence_preview'));
+
   const videoFileEl = document.getElementById('video_file');
   const videoPreviewEl = document.getElementById('video_preview');
-  videoFileEl.addEventListener('change', ()=>{
+  const recCompress = document.getElementById('rec-compress');
+  const recCompressStatus = document.getElementById('rec-compress-status');
+  const recCompressPercent = document.getElementById('rec-compress-percent');
+  const recCompressFill = document.getElementById('rec-compress-fill');
+  let compressedVideoFile = null;
+
+  videoFileEl.addEventListener('change', async ()=>{
+    compressedVideoFile = null;
     const f = videoFileEl.files[0];
-    if(!f){ videoPreviewEl.classList.add('hidden'); videoPreviewEl.src=''; return; }
-    if(!ALLOWED_VIDEO_TYPES.includes(f.type)){ toast('Video chỉ nhận MP4, WEBM, MOV, OGG.','err'); videoFileEl.value=''; videoPreviewEl.classList.add('hidden'); videoPreviewEl.src=''; return; }
-    if(f.size > MAX_VIDEO_MB*1024*1024){ toast(`Video vượt quá ${MAX_VIDEO_MB}MB.`,'err'); videoFileEl.value=''; videoPreviewEl.classList.add('hidden'); videoPreviewEl.src=''; return; }
+    if(!f){
+      videoPreviewEl.classList.add('hidden');
+      videoPreviewEl.src = '';
+      recCompress.classList.remove('active');
+      return;
+    }
+    if(!ALLOWED_VIDEO_TYPES.includes(f.type)){
+      toast('Video chỉ nhận MP4, WEBM, MOV, OGG.','err');
+      videoFileEl.value=''; return;
+    }
+
     videoPreviewEl.src = URL.createObjectURL(f);
     videoPreviewEl.classList.remove('hidden');
+    recCompress.classList.add('active');
+    recCompressStatus.textContent = 'Đang kiểm tra video...';
+    recCompressPercent.textContent = '0%';
+    recCompressFill.style.width = '0%';
+
+    try{
+      const result = await compressVideo(f, 'rec', (p)=>{
+        const percent = Math.round(p*100);
+        recCompressPercent.textContent = percent + '%';
+        recCompressFill.style.width = percent + '%';
+      });
+
+      // Kiểm tra vượt giới hạn cứng
+      if(result.finalSize > VIDEO_FINAL_MAX_MB * 1024 * 1024){
+        recCompressStatus.innerHTML = `<span style="color:var(--err)">❌ Sau khi nén vẫn còn ${(result.finalSize/1024/1024).toFixed(1)}MB (>${VIDEO_FINAL_MAX_MB}MB). Vui lòng chọn video khác.</span>`;
+        recCompressPercent.textContent = '—';
+        videoFileEl.value = '';
+        compressedVideoFile = null;
+        return;
+      }
+
+      const finalFile = new File(
+        [result.blob],
+        f.name.replace(/\.[^.]+$/, '') + '.mp4',
+        { type: 'video/mp4' }
+      );
+      compressedVideoFile = finalFile;
+
+      if(result.wasCompressed){
+        recCompressStatus.innerHTML = `✅ Đã nén: <b>${(result.originalSize/1024/1024).toFixed(1)}MB → ${(result.finalSize/1024/1024).toFixed(1)}MB</b> (${result.fps}fps)`;
+        videoPreviewEl.src = URL.createObjectURL(result.blob);
+      } else {
+        recCompressStatus.innerHTML = `✅ Video OK (${(result.finalSize/1024/1024).toFixed(1)}MB, không cần nén)`;
+      }
+      recCompressPercent.textContent = '100%';
+      recCompressFill.style.width = '100%';
+    }catch(err){
+      console.error(err);
+      recCompressStatus.innerHTML = `<span style="color:var(--err)">Nén thất bại: ${esc(err.message)}</span>`;
+      recCompressPercent.textContent = '—';
+      compressedVideoFile = null;
+    }
   });
+
   const cb = document.getElementById('map-cb'), cbInput = document.getElementById('map-cb-input'), cbList = document.getElementById('map-cb-list'), cbValue = document.getElementById('map-cb-value'), cbClear = document.getElementById('map-cb-clear'), cbHint = document.getElementById('map-cb-hint');
   let highlightedIdx = -1, filtered = maps.slice();
   function renderList(){ if(!filtered.length){ cbList.innerHTML = '<div class="cb-empty">Không tìm thấy map nào.</div>'; return; } cbList.innerHTML = filtered.map((m,i)=>`<div class="cb-item ${i===highlightedIdx?'active':''}" data-idx="${i}"><span class="truncate">${esc(m.name)}</span><span class="cb-star">${stars(m.difficulty)}</span></div>`).join(''); cbList.querySelectorAll('.cb-item').forEach(el=>{ el.addEventListener('mousedown', (e)=>{ e.preventDefault(); selectMap(filtered[+el.dataset.idx]); }); }); }
@@ -1537,12 +1812,13 @@ route('/submit-record', async (params)=>{
       if(!file || !file.size) throw new Error('Chọn ảnh bằng chứng.');
       btn.textContent = 'Đang tải ảnh...';
       const { path } = await uploadImage('evidence', file, currentUser.id);
+
       let video_path = null;
-      const videoFile = fd.get('video_file');
-      if(videoFile && videoFile.size){
+      if(compressedVideoFile){
         btn.textContent = 'Đang tải video...';
-        video_path = await uploadRecordVideo(videoFile, currentUser.id);
+        video_path = await uploadRecordVideo(compressedVideoFile, currentUser.id);
       }
+
       btn.textContent = 'Đang gửi...';
       const car_type = fd.get('car_type');
       if(!car_type) throw new Error('Vui lòng chọn loại xe (A hoặc T).');
