@@ -95,6 +95,31 @@ a{cursor:pointer}
 .mention-item.active,.mention-item:hover{background:var(--card-h)}
 .mention-name{font-size:.85rem;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mention-user{font-size:.72rem;color:var(--tx2)}
+
+/* ===== Comment media ===== */
+.comment-media-preview{position:relative;display:inline-block;margin-top:.4rem;max-width:220px}
+.comment-media-preview img,.comment-media-preview video{max-width:220px;max-height:160px;border-radius:10px;border:1px solid var(--bd);display:block;background:var(--bg2)}
+.comment-media-preview .file-chip{display:flex;align-items:center;gap:.5rem;padding:.5rem .7rem;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;font-size:.8rem;max-width:220px}
+.comment-media-preview .file-chip .fname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.comment-media-preview .remove-media{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--err);color:white;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid var(--card);z-index:2}
+.comment-attach-btn{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--tx2);transition:.15s;flex-shrink:0}
+.comment-attach-btn:hover{background:var(--card-h);color:var(--tx)}
+.comment-media-display{margin-top:.4rem}
+.comment-media-display img{max-width:260px;max-height:200px;border-radius:10px;border:1px solid var(--bd);cursor:zoom-in;display:block}
+.comment-media-display video{max-width:280px;max-height:220px;border-radius:10px;border:1px solid var(--bd);display:block}
+.comment-media-display .file-chip{display:inline-flex;align-items:center;gap:.5rem;padding:.4rem .7rem;background:var(--bg2);border:1px solid var(--bd);border-radius:10px;font-size:.8rem;text-decoration:none;color:var(--tx);max-width:260px}
+.comment-media-display .file-chip:hover{background:var(--card-h)}
+.comment-media-display .file-chip .fname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px}
+
+/* ===== Feed 2 cột khi có video ===== */
+.feed-body-split{display:grid;grid-template-columns:1fr;gap:0}
+@media(min-width:768px){
+  .feed-body-split.has-video{grid-template-columns:1fr 1fr;align-items:stretch}
+  .feed-body-split.has-video .feed-video-side{border-right:1px solid var(--bd);background:#000;display:flex;align-items:center;justify-content:center;min-height:320px}
+  .feed-body-split.has-video .feed-info-side{padding:1rem}
+}
+.feed-video-side video{width:100%;height:100%;max-height:70vh;object-fit:contain;background:#000;display:block}
+@media(max-width:767px){.feed-video-side{background:#000}.feed-video-side video{width:100%;max-height:60vh;object-fit:contain}}
 </style>
 </head>
 <body>
@@ -133,7 +158,26 @@ function fullDateTime(d){if(!d)return '';return new Date(d).toLocaleString('vi-V
 function fireRpc(fn,params){(async()=>{try{await sb.rpc(fn,params);}catch(e){}})();}
 
 const MAX_UPLOAD_MB=10;
+const MAX_VIDEO_MB=50;
+const MAX_COMMENT_MB=20;
 const ALLOWED_TYPES=['image/png','image/jpeg','image/jpg','image/webp'];
+const ALLOWED_VIDEO_TYPES=['video/mp4','video/webm','video/quicktime','video/ogg'];
+const ALLOWED_COMMENT_MEDIA=[
+  'image/png','image/jpeg','image/jpg','image/webp','image/gif',
+  'video/mp4','video/webm','video/quicktime','video/ogg',
+  'application/pdf','application/zip','application/x-zip-compressed',
+  'application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain'
+];
+
+function detectMediaType(mime){
+  if(!mime) return 'file';
+  if(mime === 'image/gif') return 'gif';
+  if(mime.startsWith('image/')) return 'image';
+  if(mime.startsWith('video/')) return 'video';
+  return 'file';
+}
+
 async function uploadImage(bucket,file,pathPrefix,maxMB){
   const max=maxMB||MAX_UPLOAD_MB;
   if(!ALLOWED_TYPES.includes(file.type))throw new Error('Chỉ chấp nhận ảnh PNG, JPG hoặc WEBP.');
@@ -142,12 +186,38 @@ async function uploadImage(bucket,file,pathPrefix,maxMB){
   const path=`${pathPrefix}/${crypto.randomUUID()}.${ext}`;
   const {error}=await sb.storage.from(bucket).upload(path,file,{upsert:false});
   if(error)throw new Error('Lỗi tải ảnh lên: '+error.message);
-  if(bucket==='evidence'){const {data,error:e2}=await sb.storage.from(bucket).createSignedUrl(path,60*60*24*7);if(e2)throw e2;return {path,url:data.signedUrl};}
+  if(bucket==='evidence'||bucket==='record-videos'){const {data,error:e2}=await sb.storage.from(bucket).createSignedUrl(path,60*60*24*7);if(e2)throw e2;return {path,url:data.signedUrl};}
   const {data}=sb.storage.from(bucket).getPublicUrl(path);
   return {path,url:data.publicUrl};
 }
-function filePreview(inputEl,imgEl){inputEl.addEventListener('change',()=>{const f=inputEl.files[0];if(!f)return imgEl.classList.add('hidden');imgEl.src=URL.createObjectURL(f);imgEl.classList.remove('hidden');});}// ============ COMMENTS ============
-const COMMENT_SELECT = 'id,record_id,user_id,parent_id,content,created_at,attachment_url,attachment_type,attachment_name,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url),comment_reactions(id,user_id,sticker_id,stickers(id,name,emoji,image_url))';
+
+async function uploadRecordVideo(file, userId){
+  if(!file || !file.size) return null;
+  if(!ALLOWED_VIDEO_TYPES.includes(file.type)) throw new Error('Video chỉ nhận MP4, WEBM, MOV, OGG.');
+  if(file.size > MAX_VIDEO_MB*1024*1024) throw new Error(`Video vượt quá ${MAX_VIDEO_MB}MB.`);
+  const ext = file.name.split('.').pop();
+  const path = `${userId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await sb.storage.from('record-videos').upload(path, file, { upsert:false });
+  if(error) throw new Error('Lỗi tải video: '+error.message);
+  return path;
+}
+
+async function uploadCommentMedia(file, userId){
+  if(!file || !file.size) return null;
+  if(!ALLOWED_COMMENT_MEDIA.includes(file.type)) throw new Error('Định dạng file không được hỗ trợ.');
+  if(file.size > MAX_COMMENT_MB*1024*1024) throw new Error(`File vượt quá ${MAX_COMMENT_MB}MB.`);
+  const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
+  const path = `${userId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await sb.storage.from('comment-media').upload(path, file, { upsert:false });
+  if(error) throw new Error('Lỗi tải file: '+error.message);
+  const { data } = sb.storage.from('comment-media').getPublicUrl(path);
+  return { path, url: data.publicUrl, type: detectMediaType(file.type), name: file.name };
+}
+
+function filePreview(inputEl,imgEl){inputEl.addEventListener('change',()=>{const f=inputEl.files[0];if(!f)return imgEl.classList.add('hidden');imgEl.src=URL.createObjectURL(f);imgEl.classList.remove('hidden');});}
+
+// ============ COMMENTS ============
+const COMMENT_SELECT = 'id,record_id,user_id,parent_id,content,created_at,media_url,media_type,media_name,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url),comment_reactions(id,user_id,sticker_id,stickers(id,name,emoji,image_url))';
 async function fetchCommentsFor(recordIds){
   if(!recordIds.length) return {};
   const { data } = await sb.from('comments').select(COMMENT_SELECT).in('record_id', recordIds).order('created_at',{ascending:true});
@@ -162,6 +232,18 @@ function commentReactionsHTML(c){
   (c.comment_reactions||[]).forEach(r=>{ const x = g[r.sticker_id] = g[r.sticker_id] || { s:r.stickers, n:0, mine:false }; x.n++; if(currentUser && r.user_id===currentUser.id) x.mine = true; });
   return Object.entries(g).map(([sid,x])=>`<span class="sticker-badge c-react ${x.mine?'active':''}" data-comment-id="${c.id}" data-sticker-id="${sid}">${stickerImgHTML(x.s,'0.9rem')} <b>${x.n}</b></span>`).join('');
 }
+function commentMediaHTML(c){
+  if(!c.media_url) return '';
+  const url = esc(c.media_url);
+  if(c.media_type === 'image' || c.media_type === 'gif'){
+    return `<div class="comment-media-display"><a href="${url}" target="_blank"><img src="${url}" loading="lazy" onerror="this.parentElement.style.display='none'"></a></div>`;
+  }
+  if(c.media_type === 'video'){
+    return `<div class="comment-media-display"><video src="${url}" controls preload="metadata"></video></div>`;
+  }
+  const fname = esc(c.media_name || 'Tệp đính kèm');
+  return `<div class="comment-media-display"><a href="${url}" target="_blank" download class="file-chip"><span>📎</span><span class="fname">${fname}</span></a></div>`;
+}
 function commentHTML(c){
   const p = c.profiles || {};
   const own = currentUser && currentUser.id === c.user_id;
@@ -174,7 +256,8 @@ function commentHTML(c){
           ${userLink(p.username, p.ingame_name, 'font-semibold text-sm')}
           <span class="text-[10px] text-[--tx2]" title="${esc(fullDateTime(c.created_at))}">${timeAgo(c.created_at)}</span>
         </div>
-        <div class="text-sm mt-1 break-words whitespace-pre-wrap">${renderContent(c.content)}</div>${c.attachment_url?(c.attachment_type==='video'?`<video controls playsinline class="mt-2 max-w-full rounded-lg" style="max-height:320px"><source src="${esc(c.attachment_url)}"></video>`:`<a href="${esc(c.attachment_url)}" target="_blank"><img src="${esc(c.attachment_url)}" class="mt-2 max-w-full rounded-lg" style="max-height:320px;object-fit:contain"></a>`):''}
+        ${c.content ? `<div class="text-sm mt-1 break-words whitespace-pre-wrap">${renderContent(c.content)}</div>` : ''}
+        ${commentMediaHTML(c)}
       </div>
       <div class="comment-actions flex flex-wrap items-center gap-2">
         ${commentReactionsHTML(c)}
@@ -197,15 +280,19 @@ function commentSectionHTML(recordId, comments){
     <div class="flex items-center justify-between mb-2"><span class="text-sm font-semibold">💬 Bình luận ${has?`(${comments.length})`:''}</span></div>
     <div class="comments-list space-y-1" id="comments-${recordId}">${commentsListHTML(comments)}</div>
     ${currentUser ? `
-      <div class="flex items-center gap-2 mt-3">
-        ${avatarHTML(currentProfile,'avatar avatar-sm')}
-        <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (gõ @ để nhắc thành viên)" data-record-id="${recordId}" maxlength="1000"><label class="btn-s !py-1.5 !px-2 text-xs cursor-pointer" title="Đính kèm ảnh/video">📎<input type="file" class="comment-attachment hidden" data-record-id="${recordId}" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"></label>
-        <button class="btn-p text-xs !py-1.5 !px-3 comment-send" data-record-id="${recordId}">Gửi</button>
+      <div class="mt-3" data-composer="${recordId}">
+        <div class="comment-media-preview-wrap hidden mb-2" id="cmp-${recordId}"></div>
+        <div class="flex items-center gap-1">
+          ${avatarHTML(currentProfile,'avatar avatar-sm')}
+          <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (gõ @ để nhắc thành viên)" data-record-id="${recordId}" maxlength="1000">
+          <label class="comment-attach-btn" title="Đính kèm ảnh/video/file/GIF">📎<input type="file" class="comment-file-input hidden" data-record-id="${recordId}" accept="image/*,video/*,.pdf,.zip,.doc,.docx,.txt"></label>
+          <button class="btn-p text-xs !py-1.5 !px-3 comment-send" data-record-id="${recordId}">Gửi</button>
+        </div>
       </div>
     ` : `<div class="text-xs text-[--tx2] mt-3"><a onclick="navigate('/login')" class="user-link">Đăng nhập</a> để bình luận.</div>`}
   </div>`;
 }
-function attachCommentHandlers(){} // đã chuyển sang event delegation
+function attachCommentHandlers(){} // dùng event delegation
 async function refreshComments(recordId){
   const { data } = await sb.from('comments').select(COMMENT_SELECT).eq('record_id', recordId).order('created_at',{ascending:true});
   const list = document.getElementById(`comments-${recordId}`);
@@ -213,11 +300,32 @@ async function refreshComments(recordId){
 }
 async function sendComment(recordId){
   const input = document.querySelector(`.comment-input[data-record-id="${recordId}"]`);
-  const content = input.value.trim(); if(!content) return;
-  const { error } = await sb.from('comments').insert({ record_id: recordId, user_id: currentUser.id, content, parent_id: input.dataset.parent || null });
-  if(error) return toast(error.message,'err');
-  input.value=''; delete input.dataset.parent; input.placeholder='Viết bình luận... (gõ @ để nhắc thành viên)';
-  await refreshComments(recordId);
+  const content = input.value.trim();
+  const composer = document.querySelector(`[data-composer="${recordId}"]`);
+  const previewWrap = document.getElementById(`cmp-${recordId}`);
+  const fileInput = composer?.querySelector('.comment-file-input');
+  const pendingFile = fileInput?._pendingFile || null;
+  if(!content && !pendingFile) return;
+  const sendBtn = composer?.querySelector('.comment-send');
+  if(sendBtn){ sendBtn.disabled = true; sendBtn.textContent = '...'; }
+  try{
+    let media_url = null, media_type = null, media_name = null;
+    if(pendingFile){
+      const up = await uploadCommentMedia(pendingFile, currentUser.id);
+      media_url = up.url; media_type = up.type; media_name = up.name;
+    }
+    const { error } = await sb.from('comments').insert({
+      record_id: recordId, user_id: currentUser.id,
+      content: content || null, parent_id: input.dataset.parent || null,
+      media_url, media_type, media_name
+    });
+    if(error) throw error;
+    input.value=''; delete input.dataset.parent; input.placeholder='Viết bình luận... (gõ @ để nhắc thành viên)';
+    if(fileInput){ fileInput.value=''; fileInput._pendingFile = null; }
+    if(previewWrap){ previewWrap.innerHTML=''; previewWrap.classList.add('hidden'); }
+    await refreshComments(recordId);
+  }catch(err){ toast(err.message,'err'); }
+  finally{ if(sendBtn){ sendBtn.disabled = false; sendBtn.textContent = 'Gửi'; } }
 }
 async function toggleCommentReaction(commentId, stickerId, recordId){
   if(!currentUser) return toast('Vui lòng đăng nhập.','err');
@@ -238,7 +346,8 @@ function postActionsHTML(r, ownerId){
 document.addEventListener('keydown', (e)=>{
   if(e.target.matches?.('.comment-input') && e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendComment(e.target.dataset.recordId); }
 });
-// ============ @MENTION AUTOCOMPLETE (kiểu Messenger) ============
+
+// ============ @MENTION AUTOCOMPLETE ============
 let mentionUsers = null, mentionLoading = null, mentionToken = 0;
 const mention = { input:null, start:-1, items:[], idx:0, el:null };
 function normVN(s){ return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase(); }
@@ -263,7 +372,7 @@ function renderMention(){
   if(!mention.el){
     mention.el=document.createElement('div'); mention.el.className='mention-menu';
     mention.el.addEventListener('pointerdown', ev=>{
-      ev.preventDefault();                       // giữ focus ở ô nhập
+      ev.preventDefault();
       const it=ev.target.closest('.mention-item'); if(it) chooseMention(+it.dataset.i);
     });
     document.body.appendChild(mention.el);
@@ -289,7 +398,7 @@ document.addEventListener('input', async (e)=>{
   if(!(/^[\p{L}\p{N}_]*$/u.test(tok) || (tok.includes(' ') && 'moi nguoi'.startsWith(q)))) return closeMention();
   const token=++mentionToken;
   const users=await loadMentionUsers();
-  if(token!==mentionToken) return;               // người dùng đã gõ tiếp
+  if(token!==mentionToken) return;
   const scored=[];
   users.forEach(u=>{
     if(currentUser && u.id===currentUser.id) return;
@@ -320,6 +429,41 @@ document.addEventListener('focusout', (e)=>{ if(e.target.matches?.('.comment-inp
 window.addEventListener('resize', ()=>{ if(mention.el) positionMention(); });
 window.addEventListener('scroll', ()=>{ if(mention.el) positionMention(); }, true);
 
+// ============ COMMENT MEDIA PICKER ============
+document.addEventListener('change', (e)=>{
+  const inp = e.target;
+  if(!inp.matches?.('.comment-file-input')) return;
+  const file = inp.files[0];
+  const recId = inp.dataset.recordId;
+  const wrap = document.getElementById(`cmp-${recId}`);
+  if(!file){ inp._pendingFile = null; if(wrap){ wrap.innerHTML=''; wrap.classList.add('hidden'); } return; }
+  if(!ALLOWED_COMMENT_MEDIA.includes(file.type)){ toast('Định dạng file không được hỗ trợ.','err'); inp.value=''; return; }
+  if(file.size > MAX_COMMENT_MB*1024*1024){ toast(`File vượt quá ${MAX_COMMENT_MB}MB.`,'err'); inp.value=''; return; }
+  inp._pendingFile = file;
+  const type = detectMediaType(file.type);
+  let inner = '';
+  const url = URL.createObjectURL(file);
+  if(type === 'image' || type === 'gif'){
+    inner = `<div class="comment-media-preview"><span class="remove-media" data-rec="${recId}">✕</span><img src="${url}" alt=""></div>`;
+  } else if(type === 'video'){
+    inner = `<div class="comment-media-preview"><span class="remove-media" data-rec="${recId}">✕</span><video src="${url}" controls></video></div>`;
+  } else {
+    inner = `<div class="comment-media-preview"><span class="remove-media" data-rec="${recId}">✕</span><div class="file-chip"><span>📎</span><span class="fname">${esc(file.name)}</span></div></div>`;
+  }
+  if(wrap){ wrap.innerHTML = inner; wrap.classList.remove('hidden'); }
+});
+
+document.addEventListener('click', (e)=>{
+  const rm = e.target.closest('.remove-media');
+  if(!rm) return;
+  const recId = rm.dataset.rec;
+  const inp = document.querySelector(`.comment-file-input[data-record-id="${recId}"]`);
+  if(inp){ inp.value=''; inp._pendingFile = null; }
+  const wrap = document.getElementById(`cmp-${recId}`);
+  if(wrap){ wrap.innerHTML=''; wrap.classList.add('hidden'); }
+});
+
+// ============ DELEGATED COMMENT / RECORD ACTIONS ============
 document.addEventListener('click', async (e)=>{
   const t = e.target.closest('.comment-send,.c-react,.c-react-add,.reply-comment,.delete-comment,.edit-note,.del-rec');
   if(!t) return;
@@ -662,7 +806,9 @@ route('/register', async ()=>{
     toast('Đăng ký thành công!');
     navigate('/login');
   };
-});// ============ TRANG CHỦ (FEED) ============
+});
+
+// ============ TRANG CHỦ (FEED) ============
 route('/', async ()=>{
   const [{count:mapCount}, {count:memberCount}, {count:recCount}, {data:topMaps}] = await Promise.all([
     sb.from('maps').select('*',{count:'exact',head:true}).eq('is_active',true),
@@ -685,12 +831,17 @@ route('/', async ()=>{
   const top1Keys = new Set((top1Ranks||[]).map(r=>`${r.map_id}_${r.user_id}`));
   const feedIds = (feedRecs||[]).map(r=>r.id);
   const evidenceUrls = {};
+  const videoUrls = {};
   const commentsMap = await fetchCommentsFor(feedIds);
   const reactionsMap = await fetchReactionsFor(feedIds);
   await loadAllStickers();
   await Promise.all((feedRecs||[]).map(async(r)=>{
-    if(!r.evidence_url) return;
-    try{ const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600); if(data?.signedUrl) evidenceUrls[r.id] = data.signedUrl; }catch(e){}
+    if(r.evidence_url){
+      try{ const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600); if(data?.signedUrl) evidenceUrls[r.id] = data.signedUrl; }catch(e){}
+    }
+    if(r.video_url){
+      try{ const { data } = await sb.storage.from('record-videos').createSignedUrl(r.video_url, 3600); if(data?.signedUrl) videoUrls[r.id] = data.signedUrl; }catch(e){}
+    }
   }));
   layout(`
     <section class="rounded-2xl mb-6 md:mb-10 card overflow-hidden relative" style="background:linear-gradient(135deg,#0E1420,#121B2A)">
@@ -715,7 +866,7 @@ route('/', async ()=>{
       <a onclick="navigate('/leaderboard')" class="text-sm text-[--tx2] hover:text-white">Xem bảng xếp hạng →</a>
     </div>
     <div id="feed-container">
-      ${(feedRecs||[]).length?feedRecs.map(r=>feedPost(r,evidenceUrls[r.id],top1Keys,commentsMap[r.id]||[],reactionsMap[r.id]||[])).join(''):emptyState('Chưa có kỷ lục nào được duyệt.')}
+      ${(feedRecs||[]).length?feedRecs.map(r=>feedPost(r,evidenceUrls[r.id],top1Keys,commentsMap[r.id]||[],reactionsMap[r.id]||[],videoUrls[r.id])).join(''):emptyState('Chưa có kỷ lục nào được duyệt.')}
     </div>
     ${feedHasMore?`<div class="text-center mt-4"><button id="load-more-feed" class="btn-s text-sm" data-offset="${feedLimit}">Xem thêm kỷ lục cũ hơn ↓</button></div>`:''}
   `);
@@ -731,14 +882,19 @@ route('/', async ()=>{
         .eq('status','approved').order('submitted_at',{ascending:false}).range(offset, offset + feedLimit - 1);
       const ids = (moreRecs||[]).map(r=>r.id);
       const moreUrls = {};
+      const moreVideoUrls = {};
       const moreComments = await fetchCommentsFor(ids);
       const moreReactions = await fetchReactionsFor(ids);
       await Promise.all((moreRecs||[]).map(async(r)=>{
-        if(!r.evidence_url) return;
-        try{ const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600); if(data?.signedUrl) moreUrls[r.id] = data.signedUrl; }catch(e){}
+        if(r.evidence_url){
+          try{ const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600); if(data?.signedUrl) moreUrls[r.id] = data.signedUrl; }catch(e){}
+        }
+        if(r.video_url){
+          try{ const { data } = await sb.storage.from('record-videos').createSignedUrl(r.video_url, 3600); if(data?.signedUrl) moreVideoUrls[r.id] = data.signedUrl; }catch(e){}
+        }
       }));
       const container = document.getElementById('feed-container');
-      container.insertAdjacentHTML('beforeend', (moreRecs||[]).map(r=>feedPost(r, moreUrls[r.id], top1Keys, moreComments[r.id]||[], moreReactions[r.id]||[])).join(''));
+      container.insertAdjacentHTML('beforeend', (moreRecs||[]).map(r=>feedPost(r, moreUrls[r.id], top1Keys, moreComments[r.id]||[], moreReactions[r.id]||[], moreVideoUrls[r.id])).join(''));
       (moreRecs||[]).forEach(r=>{ attachCommentHandlers(r.id); attachReactionHandlers(r.id); });
       if((moreRecs||[]).length < feedLimit) loadMoreBtn.remove();
       else { loadMoreBtn.dataset.offset = offset + feedLimit; loadMoreBtn.disabled = false; loadMoreBtn.textContent = 'Xem thêm kỷ lục cũ hơn ↓'; }
@@ -747,10 +903,23 @@ route('/', async ()=>{
 });
 function statCard(label,val){ return `<div class="card p-3 md:p-5 text-center md:text-left"><div class="text-xl md:text-3xl font-extrabold" style="color:var(--blue)">${val}</div><div class="text-xs md:text-sm text-[--tx2] mt-1">${esc(label)}</div></div>`; }
 function emptyState(msg){ return `<div class="card p-8 md:p-10 text-center text-[--tx2] text-sm">${esc(msg)}</div>`; }
-function feedPost(r, evidenceUrl, top1Keys, comments, reactions){
+function feedPost(r, evidenceUrl, top1Keys, comments, reactions, videoSignedUrl){
   const p = r.profiles || {};
   const isTop1 = top1Keys.has(`${r.maps.id}_${p.id}`);
-  return `<article class="feed-post" data-record-id="${r.id}">
+  const hasVideo = !!videoSignedUrl;
+  const infoHTML = `
+    <h3 class="text-base md:text-lg font-bold mb-3">🏁 <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="user-link">${esc(r.maps.name)}</a> <span class="star-inline ml-1" style="color:var(--gold)">${stars(r.maps.difficulty)}</span></h3>
+    <div class="grid grid-cols-2 gap-2 md:gap-3 mb-3 text-xs md:text-sm">
+      <div><div class="text-[--tx2]">⏱️ Thời gian</div><div class="font-mono font-bold" style="color:var(--gold)">${msToStr(r.time_ms)}</div></div>
+      <div><div class="text-[--tx2]">🚗 Xe</div><div class="font-semibold truncate">${esc(r.car||'—')}</div></div>
+      <div><div class="text-[--tx2]">🐾 Pet</div><div class="font-semibold truncate">${esc(r.pet||'—')}</div></div>
+      <div><div class="text-[--tx2]">📅 Ngày</div><div class="font-semibold">${new Date(r.submitted_at).toLocaleDateString('vi-VN')}</div></div>
+    </div>
+    ${r.note?`<div class="text-xs md:text-sm italic text-[--tx2] p-2 rounded-lg mb-3" style="background:var(--bg2)">💬 "${esc(r.note)}"</div>`:''}
+    ${reactionsBarHTML(r.id, reactions)}
+  `;
+
+  const headerHTML = `
     <div class="p-3 md:p-4 flex items-center gap-3 border-b" style="border-color:var(--bd)">
       <a onclick="navigate('/user/${esc(p.username)}')" class="shrink-0">${avatarHTML(p,'avatar')}</a>
       <div class="flex-1 min-w-0">
@@ -761,20 +930,21 @@ function feedPost(r, evidenceUrl, top1Keys, comments, reactions){
         <div class="text-xs text-[--tx2]" title="${esc(fullDateTime(r.submitted_at))}">${timeAgo(r.submitted_at)} · đã đăng kỷ lục mới</div>
       </div>
       <span class="badge shrink-0" style="background:var(--ok);color:#0a0a0a">✅</span>
-    </div>
-    <div class="p-3 md:p-4">
-      <h3 class="text-base md:text-lg font-bold mb-3">🏁 <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="user-link">${esc(r.maps.name)}</a> <span class="star-inline ml-1" style="color:var(--gold)">${stars(r.maps.difficulty)}</span></h3>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-3 text-xs md:text-sm">
-        <div><div class="text-[--tx2]">⏱️ Thời gian</div><div class="font-mono font-bold" style="color:var(--gold)">${msToStr(r.time_ms)}</div></div>
-        <div><div class="text-[--tx2]">🚗 Xe</div><div class="font-semibold truncate">${esc(r.car||'—')}</div></div>
-        <div><div class="text-[--tx2]">🐾 Pet</div><div class="font-semibold truncate">${esc(r.pet||'—')}</div></div>
-        <div><div class="text-[--tx2]">📅 Ngày</div><div class="font-semibold">${new Date(r.submitted_at).toLocaleDateString('vi-VN')}</div></div>
-      </div>
-      ${r.note?`<div class="text-xs md:text-sm italic text-[--tx2] p-2 rounded-lg" style="background:var(--bg2)">💬 "${esc(r.note)}"</div>`:''}
-      ${reactionsBarHTML(r.id, reactions)}
-    </div>
-    ${evidenceUrl?`<a href="${evidenceUrl}" target="_blank" class="block"><img src="${evidenceUrl}" class="feed-img" loading="lazy" onerror="this.parentElement.style.display='none'"></a>`:''}
-    ${r.video_url?`<div class="p-3 md:p-4 border-t" style="border-color:var(--bd)"><div class="text-xs font-semibold mb-2 text-[--tx2]">🎬 Video REC</div><video controls playsinline preload="metadata" class="w-full rounded-xl" style="max-height:480px;background:#000"><source src="${esc(r.video_url)}"></video></div>`:''}
+    </div>`;
+
+  const bodyHTML = hasVideo
+    ? `<div class="feed-body-split has-video">
+         <div class="feed-video-side">
+           <video src="${esc(videoSignedUrl)}" controls preload="metadata" playsinline></video>
+         </div>
+         <div class="feed-info-side">${infoHTML}</div>
+       </div>`
+    : `<div class="p-3 md:p-4">${infoHTML}</div>`;
+
+  return `<article class="feed-post" data-record-id="${r.id}">
+    ${headerHTML}
+    ${bodyHTML}
+    ${evidenceUrl?`<a href="${evidenceUrl}" target="_blank" class="block ${hasVideo?'border-t':''}" style="${hasVideo?'border-color:var(--bd)':''}"><img src="${evidenceUrl}" class="feed-img" loading="lazy" onerror="this.parentElement.style.display='none'"></a>`:''}
     ${commentSectionHTML(r.id, comments)}
     <div class="p-3 md:p-4 border-t flex justify-between items-center gap-2 flex-wrap" style="border-color:var(--bd)">
       <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="text-sm text-[--tx2] hover:text-white">🗺️ Xem map</a>
@@ -800,8 +970,7 @@ function topMapCard(m, best, rank){
   </div>`;
 }
 
-// ============ MAPS ============
-// ============ TÌM KIẾM (kiểu Facebook/TikTok) ============
+// ============ TÌM KIẾM ============
 const FEED_SELECT = 'id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,video_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)';
 const CT_ALIAS = {'t':'T','xe t':'T','loai xe t':'T','a':'A','xe a':'A','loai xe a':'A'};
 function searchBoxHTML(q=''){ return `<form class="search-form flex gap-2 mb-5"><input type="search" name="q" value="${esc(q)}" placeholder="🔍 Tìm map, mô tả, loại xe, pet, bình luận, thành viên..." class="flex-1 !py-2.5 !px-4 text-sm"><button class="btn-p text-sm !px-4" type="submit">Tìm</button></form>`; }
@@ -828,15 +997,15 @@ async function runSearch(raw){
   const hits=[], mapCount={}, posterCount={};
   ix.recs.forEach(r=>{
     const m=ix.mapById[r.map_id]; if(!m) return;
-    let n=0;                                              // mỗi mục tìm riêng, không liên quan nhau
-    if(has(normVN(m.name))) n++;                          // tên map
-    if(has(normVN(r.note))) n++;                          // mô tả
-    if(has(normVN(r.car)) || CT_ALIAS[q]===r.car_type) n++; // xe / loại xe
-    if(has(normVN(r.pet))) n++;                           // pet
-    if(has(ix.cm[r.id])) n++;                             // bình luận
+    let n=0;
+    if(has(normVN(m.name))) n++;
+    if(has(normVN(r.note))) n++;
+    if(has(normVN(r.car)) || CT_ALIAS[q]===r.car_type) n++;
+    if(has(normVN(r.pet))) n++;
+    if(has(ix.cm[r.id])) n++;
     if(n){ hits.push({id:r.id,n}); mapCount[m.id]=(mapCount[m.id]||0)+1; posterCount[r.user_id]=(posterCount[r.user_id]||0)+1; }
   });
-  hits.sort((a,b)=>b.n-a.n);                              // sort ổn định: cùng điểm giữ thứ tự mới nhất
+  hits.sort((a,b)=>b.n-a.n);
   const members=ix.profs.filter(u=>has(normVN(u.ingame_name))||has(normVN(u.username)));
   const nameMaps=ix.maps.filter(m=>has(normVN(m.name)));
   const maps=[...nameMaps, ...ix.maps.filter(m=>mapCount[m.id] && !nameMaps.includes(m)).sort((a,b)=>mapCount[b.id]-mapCount[a.id])];
@@ -859,9 +1028,13 @@ route('/search', async (p)=>{
     const ids=R.ids.slice(shown,shown+PER); shown+=ids.length;
     const {data}=await sb.from('records').select(FEED_SELECT).in('id',ids).eq('status','approved');
     const ord=new Map(ids.map((id,i)=>[id,i])); const recs=(data||[]).sort((a,b)=>ord.get(a.id)-ord.get(b.id));
-    const urls={}; await Promise.all(recs.map(async r=>{ if(!r.evidence_url) return; try{ const {data:d}=await sb.storage.from('evidence').createSignedUrl(r.evidence_url,3600); if(d?.signedUrl) urls[r.id]=d.signedUrl; }catch(e){} }));
+    const urls={}, vurls={};
+    await Promise.all(recs.map(async r=>{
+      if(r.evidence_url){ try{ const {data:d}=await sb.storage.from('evidence').createSignedUrl(r.evidence_url,3600); if(d?.signedUrl) urls[r.id]=d.signedUrl; }catch(e){} }
+      if(r.video_url){ try{ const {data:d}=await sb.storage.from('record-videos').createSignedUrl(r.video_url,3600); if(d?.signedUrl) vurls[r.id]=d.signedUrl; }catch(e){} }
+    }));
     const cmts=await fetchCommentsFor(ids), reacts=await fetchReactionsFor(ids);
-    document.getElementById('sr-feed').insertAdjacentHTML('beforeend', recs.map(r=>feedPost(r,urls[r.id],top1Keys,cmts[r.id]||[],reacts[r.id]||[])).join(''));
+    document.getElementById('sr-feed').insertAdjacentHTML('beforeend', recs.map(r=>feedPost(r,urls[r.id],top1Keys,cmts[r.id]||[],reacts[r.id]||[],vurls[r.id])).join(''));
     recs.forEach(r=>attachReactionHandlers(r.id));
     if(btn) btn.style.display = shown>=R.ids.length ? 'none' : '';
   }
@@ -877,6 +1050,8 @@ route('/search', async (p)=>{
   }
   await draw();
 });
+
+// ============ MAPS ============
 route('/maps', async ()=> renderMaps(null));
 route('/maps/difficulty/:star', async (p)=> renderMaps(+p.star));
 async function renderMaps(difficulty){
@@ -1089,13 +1264,18 @@ route('/user/:username', async (p)=>{
   const isSelf = currentUser && currentUser.id === profile.id;
   const recsForEvidence = (recs||[]).slice(0, 50);
   const evidenceUrls = {};
+  const videoUrls = {};
   const recIds = (recs||[]).map(r=>r.id);
   const commentsMap = await fetchCommentsFor(recIds);
   const reactionsMap = await fetchReactionsFor(recIds);
   await loadAllStickers();
   await Promise.all(recsForEvidence.map(async (r)=>{
-    if(!r.evidence_url) return;
-    try{ const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600); if(data?.signedUrl) evidenceUrls[r.id] = data.signedUrl; }catch(e){}
+    if(r.evidence_url){
+      try{ const { data } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600); if(data?.signedUrl) evidenceUrls[r.id] = data.signedUrl; }catch(e){}
+    }
+    if(r.video_url){
+      try{ const { data } = await sb.storage.from('record-videos').createSignedUrl(r.video_url, 3600); if(data?.signedUrl) videoUrls[r.id] = data.signedUrl; }catch(e){}
+    }
   }));
   layout(`
     <div class="profile-banner mb-6 md:mb-8">
@@ -1136,6 +1316,7 @@ route('/user/:username', async (p)=>{
       ${totalRecords?`<div class="timeline">${(recs||[]).map(r=>{
         const isTop1 = top1Set.has(r.maps.id);
         const url = evidenceUrls[r.id];
+        const vurl = videoUrls[r.id];
         return `<div class="timeline-item approved">
           <article class="blog-post p-3 md:p-5" data-record-id="${r.id}">
             <div class="flex flex-wrap items-center gap-2 mb-3">
@@ -1153,6 +1334,7 @@ route('/user/:username', async (p)=>{
             ${r.note?`<div class="text-xs md:text-sm italic text-[--tx2] mb-3 p-2 rounded-lg" style="background:var(--bg2)">💬 "${esc(r.note)}"</div>`:''}
             ${reactionsBarHTML(r.id, reactionsMap[r.id]||[])}
             <div class="mt-2">${postActionsHTML(r, profile.id)}</div>
+            ${vurl?`<div class="mt-3"><div class="text-xs text-[--tx2] mb-2">🎬 Video kỷ lục:</div><video src="${vurl}" controls preload="metadata" class="blog-evidence" playsinline></video></div>`:''}
             ${url?`<div class="mt-3"><div class="text-xs text-[--tx2] mb-2">📸 Ảnh bằng chứng:</div><a href="${url}" target="_blank" class="block"><img src="${url}" class="blog-evidence" loading="lazy" onerror="this.style.display='none'"></a></div>`:''}
             ${commentSectionHTML(r.id, commentsMap[r.id]||[])}
           </article>
@@ -1306,13 +1488,28 @@ route('/submit-record', async (params)=>{
         <div class="grid grid-cols-2 gap-3"><div><label class="text-sm text-[--tx2]">Xe</label><input name="car" maxlength="64" placeholder="VD: T2 đặc cầu,T7 Vân Tiêu" class="mt-1"></div><div><label class="text-sm text-[--tx2]">Pet</label><input name="pet" maxlength="64" placeholder="VD:Gấu Bel,Linh Xà Sen Mộng" class="mt-1"></div></div>
         <div><label class="text-sm text-[--tx2]">Thời gian (MM:SS:mm)</label><input required name="time_str" placeholder="01:25:35" class="mt-1 font-mono"></div>
         <div><label class="text-sm text-[--tx2]">Ảnh bằng chứng (tối đa ${MAX_UPLOAD_MB}MB)</label><input required type="file" name="evidence_file" id="evidence_file" accept="image/png,image/jpeg,image/webp" class="mt-1"><img id="evidence_preview" class="hidden mt-2 max-h-48 rounded-lg border" style="border-color:var(--bd)"></div>
-        <div><label class="text-sm text-[--tx2]">Video REC (không bắt buộc, MP4/WEBM/MOV, tối đa 100MB)</label><input type="file" name="video_file" id="video_file" accept="video/mp4,video/webm,video/quicktime" class="mt-1"><video id="video_preview" controls playsinline class="hidden mt-2 max-h-48 rounded-lg"></video></div><div><label class="text-sm text-[--tx2]">Ghi chú</label><textarea name="note" maxlength="500" class="mt-1" rows="2"></textarea></div>
+        <div>
+          <label class="text-sm text-[--tx2]">Video kỷ lục (không bắt buộc, tối đa ${MAX_VIDEO_MB}MB)</label>
+          <input type="file" name="video_file" id="video_file" accept="video/mp4,video/webm,video/quicktime,video/ogg" class="mt-1">
+          <video id="video_preview" class="hidden mt-2 max-h-48 rounded-lg border w-full" style="border-color:var(--bd)" controls></video>
+          <p class="text-xs text-[--tx2] mt-1">Nếu có video, bài đăng sẽ hiển thị dạng 2 cột: video bên trái, thông tin bên phải.</p>
+        </div>
+        <div><label class="text-sm text-[--tx2]">Ghi chú</label><textarea name="note" maxlength="500" class="mt-1" rows="2"></textarea></div>
         <label class="flex items-start gap-2 text-sm text-[--tx2]"><input required type="checkbox" name="confirm" class="mt-1 !w-auto">Tôi xác nhận thông tin chính xác.</label>
         <button class="btn-p w-full" type="submit">Gửi kỷ lục</button>
       </form>
     </div>`);
   filePreview(document.getElementById('evidence_file'), document.getElementById('evidence_preview'));
-  document.getElementById('video_file').addEventListener('change',e=>{const v=document.getElementById('video_preview'),f=e.target.files[0];if(!f){v.classList.add('hidden');return;}v.src=URL.createObjectURL(f);v.classList.remove('hidden');});
+  const videoFileEl = document.getElementById('video_file');
+  const videoPreviewEl = document.getElementById('video_preview');
+  videoFileEl.addEventListener('change', ()=>{
+    const f = videoFileEl.files[0];
+    if(!f){ videoPreviewEl.classList.add('hidden'); videoPreviewEl.src=''; return; }
+    if(!ALLOWED_VIDEO_TYPES.includes(f.type)){ toast('Video chỉ nhận MP4, WEBM, MOV, OGG.','err'); videoFileEl.value=''; videoPreviewEl.classList.add('hidden'); videoPreviewEl.src=''; return; }
+    if(f.size > MAX_VIDEO_MB*1024*1024){ toast(`Video vượt quá ${MAX_VIDEO_MB}MB.`,'err'); videoFileEl.value=''; videoPreviewEl.classList.add('hidden'); videoPreviewEl.src=''; return; }
+    videoPreviewEl.src = URL.createObjectURL(f);
+    videoPreviewEl.classList.remove('hidden');
+  });
   const cb = document.getElementById('map-cb'), cbInput = document.getElementById('map-cb-input'), cbList = document.getElementById('map-cb-list'), cbValue = document.getElementById('map-cb-value'), cbClear = document.getElementById('map-cb-clear'), cbHint = document.getElementById('map-cb-hint');
   let highlightedIdx = -1, filtered = maps.slice();
   function renderList(){ if(!filtered.length){ cbList.innerHTML = '<div class="cb-empty">Không tìm thấy map nào.</div>'; return; } cbList.innerHTML = filtered.map((m,i)=>`<div class="cb-item ${i===highlightedIdx?'active':''}" data-idx="${i}"><span class="truncate">${esc(m.name)}</span><span class="cb-star">${stars(m.difficulty)}</span></div>`).join(''); cbList.querySelectorAll('.cb-item').forEach(el=>{ el.addEventListener('mousedown', (e)=>{ e.preventDefault(); selectMap(filtered[+el.dataset.idx]); }); }); }
@@ -1338,13 +1535,18 @@ route('/submit-record', async (params)=>{
       const time_ms = parseTimeStr(fd.get('time_str'));
       const file = fd.get('evidence_file');
       if(!file || !file.size) throw new Error('Chọn ảnh bằng chứng.');
-      btn.textContent = 'Đang tải...';
+      btn.textContent = 'Đang tải ảnh...';
       const { path } = await uploadImage('evidence', file, currentUser.id);
-      const videoFile=fd.get('video_file');let video_url=null;if(videoFile&&videoFile.size){if(!['video/mp4','video/webm','video/quicktime'].includes(videoFile.type))throw new Error('Video phải là MP4, WEBM hoặc MOV.');if(videoFile.size>100*1024*1024)throw new Error('Video vượt quá 100MB.');btn.textContent='Đang tải video...';const vp=`${currentUser.id}/${crypto.randomUUID()}.${videoFile.name.split('.').pop()}`;const {error:ve}=await sb.storage.from('record-videos').upload(vp,videoFile,{upsert:false,contentType:videoFile.type});if(ve)throw ve;video_url=sb.storage.from('record-videos').getPublicUrl(vp).data.publicUrl;}
+      let video_path = null;
+      const videoFile = fd.get('video_file');
+      if(videoFile && videoFile.size){
+        btn.textContent = 'Đang tải video...';
+        video_path = await uploadRecordVideo(videoFile, currentUser.id);
+      }
       btn.textContent = 'Đang gửi...';
       const car_type = fd.get('car_type');
       if(!car_type) throw new Error('Vui lòng chọn loại xe (A hoặc T).');
-      const { error } = await sb.from('records').insert({ user_id: currentUser.id, map_id: mapId, time_ms, car_type, car: fd.get('car')||null, pet: fd.get('pet')||null, evidence_url: path, video_url, note: fd.get('note')||null, status: 'pending' });
+      const { error } = await sb.from('records').insert({ user_id: currentUser.id, map_id: mapId, time_ms, car_type, car: fd.get('car')||null, pet: fd.get('pet')||null, evidence_url: path, video_url: video_path, note: fd.get('note')||null, status: 'pending' });
       if(error) throw error;
       toast('Gửi kỷ lục thành công!');
       navigate('/my-records');
@@ -1384,13 +1586,13 @@ route('/my-records', async ()=>{
   const { data: recs } = await sb.from('records').select('*,maps(name,slug)').eq('user_id',currentUser.id).order('submitted_at',{ascending:false});
   const statusColor = {pending:'var(--gold)',approved:'var(--ok)',rejected:'var(--err)'};
   const statusLabel = {pending:'Đang chờ duyệt',approved:'Đã duyệt',rejected:'Bị từ chối'};
-  layout(`<h1 class="text-xl md:text-2xl font-extrabold mb-4 md:mb-6">Kỷ lục của tôi</h1><div class="space-y-2">${(recs||[]).length?recs.map(r=>`<div class="card p-3 md:p-4 flex justify-between items-center gap-3"><div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(r.maps.name)}</div><div class="text-xs md:text-sm text-[--tx2] truncate">${r.car?esc(r.car):'—'} · ${r.pet?esc(r.pet):'—'}</div><div class="text-xs md:text-sm text-[--tx2]">${new Date(r.submitted_at).toLocaleString('vi-VN')}</div>${r.status==='rejected'&&r.rejection_reason?`<div class="text-xs md:text-sm mt-1" style="color:var(--err)">Lý do: ${esc(r.rejection_reason)}</div>`:''}</div><div class="text-right shrink-0"><div class="font-mono text-sm md:text-base" style="color:var(--gold)">${msToStr(r.time_ms)}</div><span class="badge text-[10px] md:text-xs" style="background:var(--bg2);color:${statusColor[r.status]}">${statusLabel[r.status]}</span></div></div>`).join(''):emptyState('Bạn chưa gửi kỷ lục nào.')}</div>`);
+  layout(`<h1 class="text-xl md:text-2xl font-extrabold mb-4 md:mb-6">Kỷ lục của tôi</h1><div class="space-y-2">${(recs||[]).length?recs.map(r=>`<div class="card p-3 md:p-4 flex justify-between items-center gap-3"><div class="min-w-0 flex-1"><div class="font-semibold truncate">${esc(r.maps.name)}</div><div class="text-xs md:text-sm text-[--tx2] truncate">${r.car?esc(r.car):'—'} · ${r.pet?esc(r.pet):'—'}${r.video_url?' · 🎬 có video':''}</div><div class="text-xs md:text-sm text-[--tx2]">${new Date(r.submitted_at).toLocaleString('vi-VN')}</div>${r.status==='rejected'&&r.rejection_reason?`<div class="text-xs md:text-sm mt-1" style="color:var(--err)">Lý do: ${esc(r.rejection_reason)}</div>`:''}</div><div class="text-right shrink-0"><div class="font-mono text-sm md:text-base" style="color:var(--gold)">${msToStr(r.time_ms)}</div><span class="badge text-[10px] md:text-xs" style="background:var(--bg2);color:${statusColor[r.status]}">${statusLabel[r.status]}</span></div></div>`).join(''):emptyState('Bạn chưa gửi kỷ lục nào.')}</div>`);
 });
 
 // ============ ADMIN: DUYỆT REC ============
 route('/admin/records', async ()=>{
   if(!isModOrAdmin()){ toast('Không có quyền.','err'); return navigate('/'); }
-  const { data: pending, error } = await sb.from('records').select('id,time_ms,car,pet,evidence_url,note,submitted_at,maps(name,slug,difficulty),profiles!records_user_id_fkey(ingame_name,username,avatar_url)').eq('status','pending').order('submitted_at',{ascending:true});
+  const { data: pending, error } = await sb.from('records').select('id,time_ms,car,pet,evidence_url,video_url,note,submitted_at,maps(name,slug,difficulty),profiles!records_user_id_fkey(ingame_name,username,avatar_url)').eq('status','pending').order('submitted_at',{ascending:true});
   if(error) throw error;
   layout(`
     <h1 class="text-xl md:text-2xl font-extrabold mb-4 md:mb-6">Duyệt kỷ lục — Chờ xử lý (${(pending||[]).length})</h1>
@@ -1404,6 +1606,7 @@ route('/admin/records', async ()=>{
             <div class="font-mono text-xl md:text-2xl my-2" style="color:var(--gold)">${msToStr(r.time_ms)}</div>
             ${r.note?`<div class="text-xs md:text-sm text-[--tx2] italic mb-2">"${esc(r.note)}"</div>`:''}
             <div class="text-xs text-[--tx2]">Gửi lúc: ${new Date(r.submitted_at).toLocaleString('vi-VN')}</div>
+            ${r.video_url?`<div class="mt-3"><div class="text-xs text-[--tx2] mb-1">🎬 Video:</div><div id="ev-video-${r.id}" class="w-full rounded-lg border overflow-hidden" style="border-color:var(--bd);background:#000;min-height:120px"></div></div>`:''}
           </div>
           <div><div class="text-xs text-[--tx2] mb-1">Ảnh bằng chứng:</div><div id="ev-${r.id}" class="w-full aspect-video rounded-lg border flex items-center justify-center text-xs text-[--tx2]" style="border-color:var(--bd);background:var(--bg2)">Đang tải...</div></div>
         </div>
@@ -1412,6 +1615,9 @@ route('/admin/records', async ()=>{
   `);
   for(const r of (pending||[])){
     try{ const { data, error } = await sb.storage.from('evidence').createSignedUrl(r.evidence_url, 3600); if(error) throw error; const el = document.getElementById(`ev-${r.id}`); if(el) el.innerHTML = `<a href="${data.signedUrl}" target="_blank"><img src="${data.signedUrl}" class="w-full h-full object-cover rounded-lg cursor-zoom-in"></a>`; }catch(e){ const el = document.getElementById(`ev-${r.id}`); if(el) el.textContent = 'Không tải được ảnh'; }
+    if(r.video_url){
+      try{ const { data, error } = await sb.storage.from('record-videos').createSignedUrl(r.video_url, 3600); if(error) throw error; const el = document.getElementById(`ev-video-${r.id}`); if(el) el.innerHTML = `<video src="${data.signedUrl}" controls preload="metadata" playsinline style="width:100%;max-height:240px;object-fit:contain;background:#000;display:block"></video>`; }catch(e){ const el = document.getElementById(`ev-video-${r.id}`); if(el) el.textContent = 'Không tải được video'; }
+    }
   }
   document.querySelectorAll('.approve-btn').forEach(btn=>{ btn.onclick = async ()=>{ if(!confirm('Duyệt kỷ lục này?')) return; btn.disabled=true; btn.textContent='Đang duyệt...'; const { error } = await sb.from('records').update({ status:'approved', approved_by: currentUser.id, approved_at: new Date().toISOString() }).eq('id', btn.dataset.id); if(error){ toast(error.message,'err'); btn.disabled=false; btn.textContent='✓ Duyệt'; return; } toast('Đã duyệt.'); resolveRoute(); }; });
   document.querySelectorAll('.reject-btn').forEach(btn=>{ btn.onclick = async ()=>{ const reason = prompt('Lý do từ chối:'); if(reason === null) return; btn.disabled=true; btn.textContent='Đang xử lý...'; const { error } = await sb.from('records').update({ status:'rejected', rejection_reason: reason||'Không đạt yêu cầu', approved_by: currentUser.id, approved_at: new Date().toISOString() }).eq('id', btn.dataset.id); if(error){ toast(error.message,'err'); btn.disabled=false; btn.textContent='✗ Từ chối'; return; } toast('Đã từ chối.'); resolveRoute(); }; });
