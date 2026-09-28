@@ -147,7 +147,7 @@ async function uploadImage(bucket,file,pathPrefix,maxMB){
   return {path,url:data.publicUrl};
 }
 function filePreview(inputEl,imgEl){inputEl.addEventListener('change',()=>{const f=inputEl.files[0];if(!f)return imgEl.classList.add('hidden');imgEl.src=URL.createObjectURL(f);imgEl.classList.remove('hidden');});}// ============ COMMENTS ============
-const COMMENT_SELECT = 'id,record_id,user_id,parent_id,content,created_at,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url),comment_reactions(id,user_id,sticker_id,stickers(id,name,emoji,image_url))';
+const COMMENT_SELECT = 'id,record_id,user_id,parent_id,content,created_at,attachment_url,attachment_type,attachment_name,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url),comment_reactions(id,user_id,sticker_id,stickers(id,name,emoji,image_url))';
 async function fetchCommentsFor(recordIds){
   if(!recordIds.length) return {};
   const { data } = await sb.from('comments').select(COMMENT_SELECT).in('record_id', recordIds).order('created_at',{ascending:true});
@@ -174,7 +174,7 @@ function commentHTML(c){
           ${userLink(p.username, p.ingame_name, 'font-semibold text-sm')}
           <span class="text-[10px] text-[--tx2]" title="${esc(fullDateTime(c.created_at))}">${timeAgo(c.created_at)}</span>
         </div>
-        <div class="text-sm mt-1 break-words whitespace-pre-wrap">${renderContent(c.content)}</div>
+        <div class="text-sm mt-1 break-words whitespace-pre-wrap">${renderContent(c.content)}</div>${c.attachment_url?(c.attachment_type==='video'?`<video controls playsinline class="mt-2 max-w-full rounded-lg" style="max-height:320px"><source src="${esc(c.attachment_url)}"></video>`:`<a href="${esc(c.attachment_url)}" target="_blank"><img src="${esc(c.attachment_url)}" class="mt-2 max-w-full rounded-lg" style="max-height:320px;object-fit:contain"></a>`):''}
       </div>
       <div class="comment-actions flex flex-wrap items-center gap-2">
         ${commentReactionsHTML(c)}
@@ -199,7 +199,7 @@ function commentSectionHTML(recordId, comments){
     ${currentUser ? `
       <div class="flex items-center gap-2 mt-3">
         ${avatarHTML(currentProfile,'avatar avatar-sm')}
-        <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (gõ @ để nhắc thành viên)" data-record-id="${recordId}" maxlength="1000">
+        <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (gõ @ để nhắc thành viên)" data-record-id="${recordId}" maxlength="1000"><label class="btn-s !py-1.5 !px-2 text-xs cursor-pointer" title="Đính kèm ảnh/video">📎<input type="file" class="comment-attachment hidden" data-record-id="${recordId}" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"></label>
         <button class="btn-p text-xs !py-1.5 !px-3 comment-send" data-record-id="${recordId}">Gửi</button>
       </div>
     ` : `<div class="text-xs text-[--tx2] mt-3"><a onclick="navigate('/login')" class="user-link">Đăng nhập</a> để bình luận.</div>`}
@@ -677,7 +677,7 @@ route('/', async ()=>{
     (ranks||[]).forEach(r=> bestByMap[r.map_id]=r);
   }
   const { data: feedRecs } = await sb.from('records')
-    .select('id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)')
+    .select('id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,video_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)')
     .eq('status','approved').order('submitted_at',{ascending:false}).limit(20);
   const feedLimit = 20;
   const feedHasMore = (feedRecs||[]).length === feedLimit;
@@ -727,7 +727,7 @@ route('/', async ()=>{
       loadMoreBtn.disabled = true; loadMoreBtn.textContent = 'Đang tải...';
       const offset = +loadMoreBtn.dataset.offset;
       const { data: moreRecs } = await sb.from('records')
-        .select('id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)')
+        .select('id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,video_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)')
         .eq('status','approved').order('submitted_at',{ascending:false}).range(offset, offset + feedLimit - 1);
       const ids = (moreRecs||[]).map(r=>r.id);
       const moreUrls = {};
@@ -774,6 +774,7 @@ function feedPost(r, evidenceUrl, top1Keys, comments, reactions){
       ${reactionsBarHTML(r.id, reactions)}
     </div>
     ${evidenceUrl?`<a href="${evidenceUrl}" target="_blank" class="block"><img src="${evidenceUrl}" class="feed-img" loading="lazy" onerror="this.parentElement.style.display='none'"></a>`:''}
+    ${r.video_url?`<div class="p-3 md:p-4 border-t" style="border-color:var(--bd)"><div class="text-xs font-semibold mb-2 text-[--tx2]">🎬 Video REC</div><video controls playsinline preload="metadata" class="w-full rounded-xl" style="max-height:480px;background:#000"><source src="${esc(r.video_url)}"></video></div>`:''}
     ${commentSectionHTML(r.id, comments)}
     <div class="p-3 md:p-4 border-t flex justify-between items-center gap-2 flex-wrap" style="border-color:var(--bd)">
       <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="text-sm text-[--tx2] hover:text-white">🗺️ Xem map</a>
@@ -801,7 +802,7 @@ function topMapCard(m, best, rank){
 
 // ============ MAPS ============
 // ============ TÌM KIẾM (kiểu Facebook/TikTok) ============
-const FEED_SELECT = 'id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)';
+const FEED_SELECT = 'id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,video_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)';
 const CT_ALIAS = {'t':'T','xe t':'T','loai xe t':'T','a':'A','xe a':'A','loai xe a':'A'};
 function searchBoxHTML(q=''){ return `<form class="search-form flex gap-2 mb-5"><input type="search" name="q" value="${esc(q)}" placeholder="🔍 Tìm map, mô tả, loại xe, pet, bình luận, thành viên..." class="flex-1 !py-2.5 !px-4 text-sm"><button class="btn-p text-sm !px-4" type="submit">Tìm</button></form>`; }
 function bindSearchBox(){ document.querySelectorAll('.search-form').forEach(f=>f.addEventListener('submit',e=>{ e.preventDefault(); const v=f.q.value.trim(); if(v) navigate('/search?q='+encodeURIComponent(v)); })); }
@@ -1072,7 +1073,7 @@ route('/user/:username', async (p)=>{
   const username = p.username;
   const { data: profile, error:perr } = await sb.from('profiles').select('*').eq('username', username).single();
   if(perr || !profile) return render404();
-  const { data: recs, error:rerr } = await sb.from('records').select('id,time_ms,car,pet,submitted_at,approved_at,evidence_url,note,maps(id,name,slug,difficulty,thumbnail_url)').eq('user_id', profile.id).eq('status','approved').order('submitted_at',{ascending:false});
+  const { data: recs, error:rerr } = await sb.from('records').select('id,time_ms,car,pet,submitted_at,approved_at,evidence_url,video_url,note,maps(id,name,slug,difficulty,thumbnail_url)').eq('user_id', profile.id).eq('status','approved').order('submitted_at',{ascending:false});
   if(rerr) throw rerr;
   const { data: top1Ranks } = await sb.from('map_rankings').select('map_id,time_ms,rank').eq('user_id', profile.id).eq('rank', 1);
   const top1Set = new Set((top1Ranks||[]).map(r=>r.map_id));
@@ -1305,12 +1306,13 @@ route('/submit-record', async (params)=>{
         <div class="grid grid-cols-2 gap-3"><div><label class="text-sm text-[--tx2]">Xe</label><input name="car" maxlength="64" placeholder="VD: T2 đặc cầu,T7 Vân Tiêu" class="mt-1"></div><div><label class="text-sm text-[--tx2]">Pet</label><input name="pet" maxlength="64" placeholder="VD:Gấu Bel,Linh Xà Sen Mộng" class="mt-1"></div></div>
         <div><label class="text-sm text-[--tx2]">Thời gian (MM:SS:mm)</label><input required name="time_str" placeholder="01:25:35" class="mt-1 font-mono"></div>
         <div><label class="text-sm text-[--tx2]">Ảnh bằng chứng (tối đa ${MAX_UPLOAD_MB}MB)</label><input required type="file" name="evidence_file" id="evidence_file" accept="image/png,image/jpeg,image/webp" class="mt-1"><img id="evidence_preview" class="hidden mt-2 max-h-48 rounded-lg border" style="border-color:var(--bd)"></div>
-        <div><label class="text-sm text-[--tx2]">Ghi chú</label><textarea name="note" maxlength="500" class="mt-1" rows="2"></textarea></div>
+        <div><label class="text-sm text-[--tx2]">Video REC (không bắt buộc, MP4/WEBM/MOV, tối đa 100MB)</label><input type="file" name="video_file" id="video_file" accept="video/mp4,video/webm,video/quicktime" class="mt-1"><video id="video_preview" controls playsinline class="hidden mt-2 max-h-48 rounded-lg"></video></div><div><label class="text-sm text-[--tx2]">Ghi chú</label><textarea name="note" maxlength="500" class="mt-1" rows="2"></textarea></div>
         <label class="flex items-start gap-2 text-sm text-[--tx2]"><input required type="checkbox" name="confirm" class="mt-1 !w-auto">Tôi xác nhận thông tin chính xác.</label>
         <button class="btn-p w-full" type="submit">Gửi kỷ lục</button>
       </form>
     </div>`);
   filePreview(document.getElementById('evidence_file'), document.getElementById('evidence_preview'));
+  document.getElementById('video_file').addEventListener('change',e=>{const v=document.getElementById('video_preview'),f=e.target.files[0];if(!f){v.classList.add('hidden');return;}v.src=URL.createObjectURL(f);v.classList.remove('hidden');});
   const cb = document.getElementById('map-cb'), cbInput = document.getElementById('map-cb-input'), cbList = document.getElementById('map-cb-list'), cbValue = document.getElementById('map-cb-value'), cbClear = document.getElementById('map-cb-clear'), cbHint = document.getElementById('map-cb-hint');
   let highlightedIdx = -1, filtered = maps.slice();
   function renderList(){ if(!filtered.length){ cbList.innerHTML = '<div class="cb-empty">Không tìm thấy map nào.</div>'; return; } cbList.innerHTML = filtered.map((m,i)=>`<div class="cb-item ${i===highlightedIdx?'active':''}" data-idx="${i}"><span class="truncate">${esc(m.name)}</span><span class="cb-star">${stars(m.difficulty)}</span></div>`).join(''); cbList.querySelectorAll('.cb-item').forEach(el=>{ el.addEventListener('mousedown', (e)=>{ e.preventDefault(); selectMap(filtered[+el.dataset.idx]); }); }); }
@@ -1338,10 +1340,11 @@ route('/submit-record', async (params)=>{
       if(!file || !file.size) throw new Error('Chọn ảnh bằng chứng.');
       btn.textContent = 'Đang tải...';
       const { path } = await uploadImage('evidence', file, currentUser.id);
+      const videoFile=fd.get('video_file');let video_url=null;if(videoFile&&videoFile.size){if(!['video/mp4','video/webm','video/quicktime'].includes(videoFile.type))throw new Error('Video phải là MP4, WEBM hoặc MOV.');if(videoFile.size>100*1024*1024)throw new Error('Video vượt quá 100MB.');btn.textContent='Đang tải video...';const vp=`${currentUser.id}/${crypto.randomUUID()}.${videoFile.name.split('.').pop()}`;const {error:ve}=await sb.storage.from('record-videos').upload(vp,videoFile,{upsert:false,contentType:videoFile.type});if(ve)throw ve;video_url=sb.storage.from('record-videos').getPublicUrl(vp).data.publicUrl;}
       btn.textContent = 'Đang gửi...';
       const car_type = fd.get('car_type');
       if(!car_type) throw new Error('Vui lòng chọn loại xe (A hoặc T).');
-      const { error } = await sb.from('records').insert({ user_id: currentUser.id, map_id: mapId, time_ms, car_type, car: fd.get('car')||null, pet: fd.get('pet')||null, evidence_url: path, note: fd.get('note')||null, status: 'pending' });
+      const { error } = await sb.from('records').insert({ user_id: currentUser.id, map_id: mapId, time_ms, car_type, car: fd.get('car')||null, pet: fd.get('pet')||null, evidence_url: path, video_url, note: fd.get('note')||null, status: 'pending' });
       if(error) throw error;
       toast('Gửi kỷ lục thành công!');
       navigate('/my-records');
