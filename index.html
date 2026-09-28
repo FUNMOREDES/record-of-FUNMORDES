@@ -90,7 +90,7 @@ a{cursor:pointer}
 .sticker-picker .sticker-item img{width:2rem;height:2rem;object-fit:contain}
 .sticker-picker .sticker-del{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--err);color:white;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid var(--card)}
 
-.mention-menu{position:fixed;z-index:60;background:var(--card);border:1px solid var(--bd);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:.3rem;max-height:14.5rem;overflow-y:auto}
+.mention-menu{position:fixed;z-index:60;background:var(--card);border:1px solid var(--bd);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:.3rem;max-height:16rem;overflow-y:auto}
 .mention-item{display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;border-radius:8px;cursor:pointer}
 .mention-item.active,.mention-item:hover{background:var(--card-h)}
 .mention-name{font-size:.85rem;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -155,7 +155,7 @@ async function fetchCommentsFor(recordIds){
   return g;
 }
 function renderContent(text){
-  return esc(text).replace(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{3,32})/g,(m,pre,u)=>`${pre}<a onclick="event.stopPropagation();navigate('/user/${u.toLowerCase()}')" class="user-link font-semibold" style="color:var(--blue)">@${u}</a>`);
+  return esc((text||'').normalize('NFC')).replace(/(^|[^\p{L}\p{N}_])@(mọi người|moi nguoi)/giu,(m,pre)=>`${pre}<span class="font-semibold" style="color:var(--gold)">@mọi người</span>`).replace(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{3,32})/g,(m,pre,u)=>`${pre}<a onclick="event.stopPropagation();navigate('/user/${u.toLowerCase()}')" class="user-link font-semibold" style="color:var(--blue)">@${u}</a>`);
 }
 function commentReactionsHTML(c){
   const g = {};
@@ -268,14 +268,14 @@ function renderMention(){
     });
     document.body.appendChild(mention.el);
   }
-  mention.el.innerHTML = mention.items.map((u,i)=>`<div class="mention-item ${i===mention.idx?'active':''}" data-i="${i}">${avatarHTML(u,'avatar avatar-sm')}<div class="min-w-0"><div class="mention-name">${esc(u.ingame_name||u.username)}</div><div class="mention-user">@${esc(u.username)}</div></div></div>`).join('');
+  mention.el.innerHTML = mention.items.map((u,i)=>`<div class="mention-item ${i===mention.idx?'active':''}" data-i="${i}">${u.special?'<div class="avatar avatar-sm">👥</div>':avatarHTML(u,'avatar avatar-sm')}<div class="min-w-0"><div class="mention-name">${esc(u.ingame_name||u.username)}</div><div class="mention-user">${u.special?esc(u.sub):'@'+esc(u.username)}</div></div></div>`).join('');
   positionMention();
   const a=mention.el?.querySelector('.mention-item.active'); if(a) a.scrollIntoView({block:'nearest'});
 }
 function chooseMention(i){
   const u=mention.items[i], inp=mention.input; if(!u||!inp) return closeMention();
   const caret=inp.selectionStart, v=inp.value;
-  const ins='@'+u.username+' ';
+  const ins=(u.special?'@mọi người':'@'+u.username)+' ';
   inp.value=v.slice(0,mention.start)+ins+v.slice(caret);
   const pos=mention.start+ins.length;
   closeMention(); inp.focus(); inp.setSelectionRange(pos,pos);
@@ -283,9 +283,11 @@ function chooseMention(i){
 document.addEventListener('input', async (e)=>{
   const inp=e.target; if(!inp.matches?.('.comment-input')) return;
   const caret=inp.selectionStart, before=inp.value.slice(0,caret);
-  const m=before.match(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{0,32})$/);
-  if(!m) return closeMention();
-  const token=++mentionToken, q=normVN(m[2]), start=caret-m[2].length-1;
+  const start=before.lastIndexOf('@');
+  if(start<0 || (start>0 && /[\p{L}\p{N}_]/u.test(before[start-1]))) return closeMention();
+  const tok=before.slice(start+1), q=normVN(tok);
+  if(!(/^[\p{L}\p{N}_]*$/u.test(tok) || (tok.includes(' ') && 'moi nguoi'.startsWith(q)))) return closeMention();
+  const token=++mentionToken;
   const users=await loadMentionUsers();
   if(token!==mentionToken) return;               // người dùng đã gõ tiếp
   const scored=[];
@@ -300,7 +302,8 @@ document.addEventListener('input', async (e)=>{
     if(sc>=0) scored.push([sc,u]);
   });
   scored.sort((a,b)=>a[0]-b[0] || (a[1].ingame_name||a[1].username).localeCompare(b[1].ingame_name||b[1].username,'vi'));
-  const items=scored.slice(0,6).map(x=>x[1]);
+  const items=scored.map(x=>x[1]);
+  if(currentUser && (!q || 'moi nguoi'.startsWith(q) || 'tat ca'.startsWith(q))) items.unshift({special:true,username:'mọi người',ingame_name:'Mọi người',sub:'Thông báo cho tất cả thành viên'});
   if(!items.length) return closeMention();
   mention.input=inp; mention.start=start; mention.items=items; mention.idx=0;
   renderMention();
@@ -702,6 +705,7 @@ route('/', async ()=>{
         </div>
       </div>
     </section>
+    ${searchBoxHTML('')}
     <div class="grid grid-cols-3 gap-2 md:gap-4 mb-6 md:mb-10">
       ${statCard('Bản đồ',mapCount??0)}${statCard('Thành viên',memberCount??0)}${statCard('Kỷ lục',recCount??0)}
     </div>
@@ -715,6 +719,7 @@ route('/', async ()=>{
     </div>
     ${feedHasMore?`<div class="text-center mt-4"><button id="load-more-feed" class="btn-s text-sm" data-offset="${feedLimit}">Xem thêm kỷ lục cũ hơn ↓</button></div>`:''}
   `);
+  bindSearchBox();
   (feedRecs||[]).forEach(r=>{ attachCommentHandlers(r.id); attachReactionHandlers(r.id); });
   const loadMoreBtn = document.getElementById('load-more-feed');
   if(loadMoreBtn){
@@ -795,6 +800,82 @@ function topMapCard(m, best, rank){
 }
 
 // ============ MAPS ============
+// ============ TÌM KIẾM (kiểu Facebook/TikTok) ============
+const FEED_SELECT = 'id,time_ms,car,pet,note,submitted_at,approved_at,evidence_url,maps(id,name,slug,difficulty),profiles!records_user_id_fkey(id,username,ingame_name,avatar_url)';
+const CT_ALIAS = {'t':'T','xe t':'T','loai xe t':'T','a':'A','xe a':'A','loai xe a':'A'};
+function searchBoxHTML(q=''){ return `<form class="search-form flex gap-2 mb-5"><input type="search" name="q" value="${esc(q)}" placeholder="🔍 Tìm map, mô tả, loại xe, pet, bình luận, thành viên..." class="flex-1 !py-2.5 !px-4 text-sm"><button class="btn-p text-sm !px-4" type="submit">Tìm</button></form>`; }
+function bindSearchBox(){ document.querySelectorAll('.search-form').forEach(f=>f.addEventListener('submit',e=>{ e.preventDefault(); const v=f.q.value.trim(); if(v) navigate('/search?q='+encodeURIComponent(v)); })); }
+async function fetchAllRows(build){ let all=[],from=0; for(;;){ const {data,error}=await build().range(from,from+999); if(error) throw error; all=all.concat(data||[]); if(!data||data.length<1000) break; from+=1000; } return all; }
+let searchIndex=null, searchIndexAt=0;
+async function getSearchIndex(){
+  if(searchIndex && Date.now()-searchIndexAt<60000) return searchIndex;
+  const [recs,maps,profs,cmts]=await Promise.all([
+    fetchAllRows(()=>sb.from('records').select('id,user_id,map_id,car,car_type,pet,note,submitted_at').eq('status','approved').order('submitted_at',{ascending:false}).order('id')),
+    fetchAllRows(()=>sb.from('maps').select('id,name,slug,thumbnail_url,difficulty').eq('is_active',true).order('name').order('id')),
+    fetchAllRows(()=>sb.from('profiles').select('id,username,ingame_name,avatar_url').order('ingame_name').order('id')),
+    fetchAllRows(()=>sb.from('comments').select('id,record_id,content').order('id'))
+  ]);
+  const cm={}; cmts.forEach(c=>{ cm[c.record_id]=(cm[c.record_id]||'')+' \n '+normVN(c.content); });
+  const mapById=Object.fromEntries(maps.map(m=>[m.id,m]));
+  searchIndex={ recs, maps, profs, mapById, cm, profById:Object.fromEntries(profs.map(u=>[u.id,u])) }; searchIndexAt=Date.now();
+  return searchIndex;
+}
+async function runSearch(raw){
+  const ix=await getSearchIndex();
+  const q=normVN(raw).trim().replace(/\s+/g,' '), toks=q.split(' ');
+  const has=f=>!!f && (f.includes(q) || toks.every(t=>f.includes(t)));
+  const hits=[], mapCount={}, posterCount={};
+  ix.recs.forEach(r=>{
+    const m=ix.mapById[r.map_id]; if(!m) return;
+    let n=0;                                              // mỗi mục tìm riêng, không liên quan nhau
+    if(has(normVN(m.name))) n++;                          // tên map
+    if(has(normVN(r.note))) n++;                          // mô tả
+    if(has(normVN(r.car)) || CT_ALIAS[q]===r.car_type) n++; // xe / loại xe
+    if(has(normVN(r.pet))) n++;                           // pet
+    if(has(ix.cm[r.id])) n++;                             // bình luận
+    if(n){ hits.push({id:r.id,n}); mapCount[m.id]=(mapCount[m.id]||0)+1; posterCount[r.user_id]=(posterCount[r.user_id]||0)+1; }
+  });
+  hits.sort((a,b)=>b.n-a.n);                              // sort ổn định: cùng điểm giữ thứ tự mới nhất
+  const members=ix.profs.filter(u=>has(normVN(u.ingame_name))||has(normVN(u.username)));
+  const nameMaps=ix.maps.filter(m=>has(normVN(m.name)));
+  const maps=[...nameMaps, ...ix.maps.filter(m=>mapCount[m.id] && !nameMaps.includes(m)).sort((a,b)=>mapCount[b.id]-mapCount[a.id])];
+  const suggest=[...members]; Object.keys(posterCount).sort((a,b)=>posterCount[b]-posterCount[a]).forEach(id=>{ const u=ix.profById[id]; if(u && !suggest.includes(u)) suggest.push(u); });
+  return { ids:hits.map(h=>h.id), members, maps, mapCount, suggest:suggest.slice(0,3) };
+}
+function memberCardHTML(u){ return `<a onclick="navigate('/user/${encodeURIComponent(u.username)}')" class="card p-3 flex items-center gap-3 cursor-pointer">${avatarHTML(u,'avatar')}<div class="min-w-0"><div class="font-semibold truncate">${esc(u.ingame_name||u.username)}</div><div class="text-xs text-[--tx2]">@${esc(u.username)}</div></div></a>`; }
+function mapResultHTML(m,n){ return `<a onclick="navigate('/map/${encodeURIComponent(m.slug)}')" class="card p-3 flex items-center gap-3 cursor-pointer"><div class="w-20 aspect-video rounded-lg overflow-hidden shrink-0 flex items-center justify-center" style="background:var(--bg2)">${m.thumbnail_url?`<img src="${esc(m.thumbnail_url)}" class="w-full h-full object-cover">`:'🏁'}</div><div class="min-w-0"><div class="font-semibold truncate">${esc(m.name)}</div><div class="text-xs text-[--tx2]">${m.difficulty?'Độ khó '+esc(m.difficulty)+' · ':''}${n||0} bài phù hợp</div></div></a>`; }
+route('/search', async (p)=>{
+  const q=(p._query?.q||'').trim();
+  layout(`<h1 class="text-xl md:text-2xl font-extrabold mb-3">🔍 Tìm kiếm</h1>${searchBoxHTML(q)}<div id="search-body">${q?'<div class="p-8 text-center text-[--tx2]">Đang tìm...</div>':emptyState('Nhập từ khóa: tên map, mô tả, loại xe (T/A), pet, bình luận hoặc tên thành viên.')}</div>`);
+  bindSearchBox(); if(!q) return;
+  const R=await runSearch(q), body=document.getElementById('search-body');
+  const tabs=[['feed','Trang chủ',R.ids.length],['members','Thành viên',R.members.length],['maps','Map',R.maps.length]];
+  let tab='feed', shown=0; const PER=10;
+  const {data:top1}=await sb.from('map_rankings').select('map_id,user_id').eq('rank',1);
+  const top1Keys=new Set((top1||[]).map(r=>`${r.map_id}_${r.user_id}`));
+  await loadAllStickers();
+  async function more(btn){
+    const ids=R.ids.slice(shown,shown+PER); shown+=ids.length;
+    const {data}=await sb.from('records').select(FEED_SELECT).in('id',ids).eq('status','approved');
+    const ord=new Map(ids.map((id,i)=>[id,i])); const recs=(data||[]).sort((a,b)=>ord.get(a.id)-ord.get(b.id));
+    const urls={}; await Promise.all(recs.map(async r=>{ if(!r.evidence_url) return; try{ const {data:d}=await sb.storage.from('evidence').createSignedUrl(r.evidence_url,3600); if(d?.signedUrl) urls[r.id]=d.signedUrl; }catch(e){} }));
+    const cmts=await fetchCommentsFor(ids), reacts=await fetchReactionsFor(ids);
+    document.getElementById('sr-feed').insertAdjacentHTML('beforeend', recs.map(r=>feedPost(r,urls[r.id],top1Keys,cmts[r.id]||[],reacts[r.id]||[])).join(''));
+    recs.forEach(r=>attachReactionHandlers(r.id));
+    if(btn) btn.style.display = shown>=R.ids.length ? 'none' : '';
+  }
+  async function draw(){
+    const bar=`<div class="flex gap-2 mb-4 flex-wrap">${tabs.map(t=>`<button class="${t[0]===tab?'btn-p':'btn-s'} text-sm !py-1.5 !px-4" data-tab="${t[0]}">${t[1]} (${t[2]})</button>`).join('')}</div>`;
+    let inner='';
+    if(tab==='feed') inner=`${R.suggest.length?`<div class="mb-4"><div class="text-sm font-semibold mb-2">👥 Thành viên liên quan</div><div class="grid grid-cols-1 md:grid-cols-3 gap-2">${R.suggest.map(memberCardHTML).join('')}</div></div>`:''}${R.ids.length?'<div id="sr-feed"></div><div class="text-center mt-4"><button id="sr-more" class="btn-s text-sm">Xem thêm ↓</button></div>':emptyState('Không có bài đăng nào phù hợp.')}`;
+    else if(tab==='members') inner=R.members.length?`<div class="grid grid-cols-1 md:grid-cols-3 gap-2">${R.members.map(memberCardHTML).join('')}</div>`:emptyState('Không có thành viên nào phù hợp.');
+    else inner=R.maps.length?`<div class="grid grid-cols-1 md:grid-cols-2 gap-2">${R.maps.map(m=>mapResultHTML(m,R.mapCount[m.id])).join('')}</div>`:emptyState('Không có map nào phù hợp.');
+    body.innerHTML=bar+inner;
+    body.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab; shown=0; draw(); });
+    if(tab==='feed' && R.ids.length){ const btn=document.getElementById('sr-more'); btn.onclick=()=>more(btn); await more(btn); }
+  }
+  await draw();
+});
 route('/maps', async ()=> renderMaps(null));
 route('/maps/difficulty/:star', async (p)=> renderMaps(+p.star));
 async function renderMaps(difficulty){
@@ -1153,6 +1234,7 @@ function actText(n){
     case 'react_record': return `${a} đã thả ${esc(n.content||'😀')} vào bài đăng của bạn`;
     case 'comment': return `${a} đã bình luận bài đăng của bạn${q}`;
     case 'reply': return `${a} đã trả lời bình luận của bạn${q}`;
+    case 'mention_all': return `${a} đã nhắc mọi người trong một bình luận${q}`;
     case 'mention': return `${a} đã nhắc đến bạn trong một bình luận${q}`;
     case 'react_comment': return `${a} đã thả ${esc(n.content||'😀')} vào bình luận của bạn`;
     case 'record_deleted': case 'comment_deleted': return `🗑️ ${esc(n.content||'')} <span class="text-[--tx2]">(bởi ${esc(n.actor?.ingame_name||'quản trị viên')})</span>`;
