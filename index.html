@@ -89,6 +89,12 @@ a{cursor:pointer}
 .sticker-picker .sticker-item:hover{background:var(--card-h);transform:scale(1.15)}
 .sticker-picker .sticker-item img{width:2rem;height:2rem;object-fit:contain}
 .sticker-picker .sticker-del{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--err);color:white;font-size:11px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid var(--card)}
+
+.mention-menu{position:fixed;z-index:60;background:var(--card);border:1px solid var(--bd);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:.3rem;max-height:14.5rem;overflow-y:auto}
+.mention-item{display:flex;align-items:center;gap:.6rem;padding:.4rem .5rem;border-radius:8px;cursor:pointer}
+.mention-item.active,.mention-item:hover{background:var(--card-h)}
+.mention-name{font-size:.85rem;font-weight:600;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mention-user{font-size:.72rem;color:var(--tx2)}
 </style>
 </head>
 <body>
@@ -193,7 +199,7 @@ function commentSectionHTML(recordId, comments){
     ${currentUser ? `
       <div class="flex items-center gap-2 mt-3">
         ${avatarHTML(currentProfile,'avatar avatar-sm')}
-        <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (dùng @username để nhắc)" data-record-id="${recordId}" maxlength="1000">
+        <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (gõ @ để nhắc thành viên)" data-record-id="${recordId}" maxlength="1000">
         <button class="btn-p text-xs !py-1.5 !px-3 comment-send" data-record-id="${recordId}">Gửi</button>
       </div>
     ` : `<div class="text-xs text-[--tx2] mt-3"><a onclick="navigate('/login')" class="user-link">Đăng nhập</a> để bình luận.</div>`}
@@ -210,7 +216,7 @@ async function sendComment(recordId){
   const content = input.value.trim(); if(!content) return;
   const { error } = await sb.from('comments').insert({ record_id: recordId, user_id: currentUser.id, content, parent_id: input.dataset.parent || null });
   if(error) return toast(error.message,'err');
-  input.value=''; delete input.dataset.parent; input.placeholder='Viết bình luận... (dùng @username để nhắc)';
+  input.value=''; delete input.dataset.parent; input.placeholder='Viết bình luận... (gõ @ để nhắc thành viên)';
   await refreshComments(recordId);
 }
 async function toggleCommentReaction(commentId, stickerId, recordId){
@@ -232,6 +238,85 @@ function postActionsHTML(r, ownerId){
 document.addEventListener('keydown', (e)=>{
   if(e.target.matches?.('.comment-input') && e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendComment(e.target.dataset.recordId); }
 });
+// ============ @MENTION AUTOCOMPLETE (kiểu Messenger) ============
+let mentionUsers = null, mentionLoading = null, mentionToken = 0;
+const mention = { input:null, start:-1, items:[], idx:0, el:null };
+function normVN(s){ return (s||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase(); }
+async function loadMentionUsers(){
+  if(mentionUsers) return mentionUsers;
+  if(!mentionLoading) mentionLoading = sb.from('profiles').select('id,username,ingame_name,avatar_url').order('ingame_name').limit(1000)
+    .then(({data,error})=>{ if(error||!data){ mentionLoading=null; return []; } mentionUsers=data; return data; });
+  return mentionLoading;
+}
+function closeMention(){ mentionToken++; if(mention.el) mention.el.remove(); mention.el=null; mention.input=null; mention.items=[]; mention.start=-1; mention.idx=0; }
+function positionMention(){
+  const el=mention.el, inp=mention.input;
+  if(!el || !inp || !document.contains(inp)) return closeMention();
+  const r=inp.getBoundingClientRect();
+  const w=Math.min(Math.max(r.width,260), window.innerWidth-16);
+  el.style.width=w+'px';
+  el.style.left=Math.max(8, Math.min(r.left, window.innerWidth-w-8))+'px';
+  const h=el.offsetHeight;
+  el.style.top=(r.top>h+12 ? r.top-h-6 : r.bottom+6)+'px';
+}
+function renderMention(){
+  if(!mention.el){
+    mention.el=document.createElement('div'); mention.el.className='mention-menu';
+    mention.el.addEventListener('pointerdown', ev=>{
+      ev.preventDefault();                       // giữ focus ở ô nhập
+      const it=ev.target.closest('.mention-item'); if(it) chooseMention(+it.dataset.i);
+    });
+    document.body.appendChild(mention.el);
+  }
+  mention.el.innerHTML = mention.items.map((u,i)=>`<div class="mention-item ${i===mention.idx?'active':''}" data-i="${i}">${avatarHTML(u,'avatar avatar-sm')}<div class="min-w-0"><div class="mention-name">${esc(u.ingame_name||u.username)}</div><div class="mention-user">@${esc(u.username)}</div></div></div>`).join('');
+  positionMention();
+  const a=mention.el?.querySelector('.mention-item.active'); if(a) a.scrollIntoView({block:'nearest'});
+}
+function chooseMention(i){
+  const u=mention.items[i], inp=mention.input; if(!u||!inp) return closeMention();
+  const caret=inp.selectionStart, v=inp.value;
+  const ins='@'+u.username+' ';
+  inp.value=v.slice(0,mention.start)+ins+v.slice(caret);
+  const pos=mention.start+ins.length;
+  closeMention(); inp.focus(); inp.setSelectionRange(pos,pos);
+}
+document.addEventListener('input', async (e)=>{
+  const inp=e.target; if(!inp.matches?.('.comment-input')) return;
+  const caret=inp.selectionStart, before=inp.value.slice(0,caret);
+  const m=before.match(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{0,32})$/);
+  if(!m) return closeMention();
+  const token=++mentionToken, q=normVN(m[2]), start=caret-m[2].length-1;
+  const users=await loadMentionUsers();
+  if(token!==mentionToken) return;               // người dùng đã gõ tiếp
+  const scored=[];
+  users.forEach(u=>{
+    if(currentUser && u.id===currentUser.id) return;
+    const un=normVN(u.username), nm=normVN(u.ingame_name);
+    let sc=-1;
+    if(!q) sc=2;
+    else if(un.startsWith(q)) sc=0;
+    else if(nm.startsWith(q) || nm.split(/\s+/).some(w=>w.startsWith(q))) sc=1;
+    else if(un.includes(q) || nm.includes(q)) sc=2;
+    if(sc>=0) scored.push([sc,u]);
+  });
+  scored.sort((a,b)=>a[0]-b[0] || (a[1].ingame_name||a[1].username).localeCompare(b[1].ingame_name||b[1].username,'vi'));
+  const items=scored.slice(0,6).map(x=>x[1]);
+  if(!items.length) return closeMention();
+  mention.input=inp; mention.start=start; mention.items=items; mention.idx=0;
+  renderMention();
+});
+document.addEventListener('keydown', (e)=>{
+  if(!mention.el || !e.target.matches?.('.comment-input') || e.isComposing) return;
+  const n=mention.items.length;
+  if(e.key==='ArrowDown'){ e.preventDefault(); mention.idx=(mention.idx+1)%n; renderMention(); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); mention.idx=(mention.idx-1+n)%n; renderMention(); }
+  else if(e.key==='Enter' || e.key==='Tab'){ e.preventDefault(); e.stopImmediatePropagation(); chooseMention(mention.idx); }
+  else if(e.key==='Escape'){ e.preventDefault(); closeMention(); }
+}, true);
+document.addEventListener('focusout', (e)=>{ if(e.target.matches?.('.comment-input')) closeMention(); });
+window.addEventListener('resize', ()=>{ if(mention.el) positionMention(); });
+window.addEventListener('scroll', ()=>{ if(mention.el) positionMention(); }, true);
+
 document.addEventListener('click', async (e)=>{
   const t = e.target.closest('.comment-send,.c-react,.c-react-add,.reply-comment,.delete-comment,.edit-note,.del-rec');
   if(!t) return;
