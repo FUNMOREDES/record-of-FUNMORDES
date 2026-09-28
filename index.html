@@ -216,8 +216,10 @@ async function sendComment(recordId){
 async function toggleCommentReaction(commentId, stickerId, recordId){
   if(!currentUser) return toast('Vui lòng đăng nhập.','err');
   const { data: ex } = await sb.from('comment_reactions').select('id').eq('comment_id',commentId).eq('user_id',currentUser.id).eq('sticker_id',stickerId).maybeSingle();
-  if(ex) await sb.from('comment_reactions').delete().eq('id',ex.id);
-  else await sb.from('comment_reactions').insert({ comment_id:commentId, user_id:currentUser.id, sticker_id:stickerId });
+  const res = ex
+    ? await sb.from('comment_reactions').delete().eq('id',ex.id)
+    : await sb.from('comment_reactions').insert({ comment_id:commentId, user_id:currentUser.id, sticker_id:stickerId });
+  if(res.error){ console.error(res.error); toast('Không thả được react: '+res.error.message,'err'); }
   await refreshComments(recordId);
 }
 async function reloadKeepScroll(){ const y=window.scrollY; await resolveRoute(); window.scrollTo(0,y); }
@@ -350,8 +352,10 @@ function outsideClosePicker(e){ if(!e.target.closest('.sticker-picker') && !e.ta
 async function toggleReaction(recordId, stickerId){
   if(!currentUser){ toast('Vui lòng đăng nhập.','err'); return; }
   const { data: existing } = await sb.from('record_reactions').select('id').eq('record_id', recordId).eq('user_id', currentUser.id).eq('sticker_id', stickerId).maybeSingle();
-  if(existing) await sb.from('record_reactions').delete().eq('id', existing.id);
-  else await sb.from('record_reactions').insert({ record_id: recordId, user_id: currentUser.id, sticker_id: stickerId });
+  const res = existing
+    ? await sb.from('record_reactions').delete().eq('id', existing.id)
+    : await sb.from('record_reactions').insert({ record_id: recordId, user_id: currentUser.id, sticker_id: stickerId });
+  if(res.error){ console.error(res.error); toast('Không thả được react: '+res.error.message,'err'); }
   await refreshRecordReactions(recordId);
 }
 async function refreshRecordReactions(recordId){
