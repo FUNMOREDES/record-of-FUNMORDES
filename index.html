@@ -141,18 +141,25 @@ async function uploadImage(bucket,file,pathPrefix,maxMB){
   return {path,url:data.publicUrl};
 }
 function filePreview(inputEl,imgEl){inputEl.addEventListener('change',()=>{const f=inputEl.files[0];if(!f)return imgEl.classList.add('hidden');imgEl.src=URL.createObjectURL(f);imgEl.classList.remove('hidden');});}// ============ COMMENTS ============
+const COMMENT_SELECT = 'id,record_id,user_id,parent_id,content,created_at,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url),comment_reactions(id,user_id,sticker_id,stickers(id,name,emoji,image_url))';
 async function fetchCommentsFor(recordIds){
   if(!recordIds.length) return {};
-  const { data } = await sb.from('comments')
-    .select('id,record_id,user_id,content,created_at,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url)')
-    .in('record_id', recordIds).order('created_at', { ascending:true });
-  const grouped = {};
-  (data||[]).forEach(c=>{ if(!grouped[c.record_id]) grouped[c.record_id]=[]; grouped[c.record_id].push(c); });
-  return grouped;
+  const { data } = await sb.from('comments').select(COMMENT_SELECT).in('record_id', recordIds).order('created_at',{ascending:true});
+  const g = {}; (data||[]).forEach(c=>{ (g[c.record_id]=g[c.record_id]||[]).push(c); });
+  return g;
+}
+function renderContent(text){
+  return esc(text).replace(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_]{3,32})/g,(m,pre,u)=>`${pre}<a onclick="event.stopPropagation();navigate('/user/${u.toLowerCase()}')" class="user-link font-semibold" style="color:var(--blue)">@${u}</a>`);
+}
+function commentReactionsHTML(c){
+  const g = {};
+  (c.comment_reactions||[]).forEach(r=>{ const x = g[r.sticker_id] = g[r.sticker_id] || { s:r.stickers, n:0, mine:false }; x.n++; if(currentUser && r.user_id===currentUser.id) x.mine = true; });
+  return Object.entries(g).map(([sid,x])=>`<span class="sticker-badge c-react ${x.mine?'active':''}" data-comment-id="${c.id}" data-sticker-id="${sid}">${stickerImgHTML(x.s,'0.9rem')} <b>${x.n}</b></span>`).join('');
 }
 function commentHTML(c){
   const p = c.profiles || {};
-  const canDelete = currentUser && (currentUser.id === c.user_id || isAdmin() || isModOrAdmin());
+  const own = currentUser && currentUser.id === c.user_id;
+  const canDelete = own || isModOrAdmin();
   return `<div class="comment" data-comment-id="${c.id}">
     <a onclick="navigate('/user/${esc(p.username)}')" class="shrink-0">${avatarHTML(p,'avatar avatar-sm')}</a>
     <div class="flex-1 min-w-0">
@@ -161,69 +168,109 @@ function commentHTML(c){
           ${userLink(p.username, p.ingame_name, 'font-semibold text-sm')}
           <span class="text-[10px] text-[--tx2]" title="${esc(fullDateTime(c.created_at))}">${timeAgo(c.created_at)}</span>
         </div>
-        <div class="text-sm mt-1 break-words whitespace-pre-wrap">${esc(c.content)}</div>
+        <div class="text-sm mt-1 break-words whitespace-pre-wrap">${renderContent(c.content)}</div>
       </div>
-      <div class="comment-actions">${canDelete?`<a class="delete-comment" data-id="${c.id}">Xóa</a>`:''}</div>
+      <div class="comment-actions flex flex-wrap items-center gap-2">
+        ${commentReactionsHTML(c)}
+        ${currentUser?`<a class="sticker-add-btn c-react-add" data-comment-id="${c.id}">😀</a><a class="reply-comment" data-id="${c.id}" data-user="${esc(p.username)}">Trả lời</a>`:''}
+        ${canDelete?`<a class="delete-comment" data-id="${c.id}" data-own="${!!own}" style="color:var(--err)">Xóa</a>`:''}
+      </div>
     </div>
   </div>`;
+}
+function commentsListHTML(list){
+  if(!list || !list.length) return '<div class="text-xs text-[--tx2] italic">Chưa có bình luận nào.</div>';
+  const byId = {}; list.forEach(c=>byId[c.id]=c);
+  const rootOf = c=>{ let x=c,g=0; while(x.parent_id && byId[x.parent_id] && g++<50) x=byId[x.parent_id]; return x; };
+  const roots = list.filter(c=>rootOf(c).id===c.id);
+  return roots.map(r=>commentHTML(r) + list.filter(c=>c.id!==r.id && rootOf(c).id===r.id).map(c=>`<div class="ml-8 md:ml-10">${commentHTML(c)}</div>`).join('')).join('');
 }
 function commentSectionHTML(recordId, comments){
   const has = comments && comments.length;
   return `<div class="comments-section border-t p-3 md:p-4" style="border-color:var(--bd)" data-record-id="${recordId}">
     <div class="flex items-center justify-between mb-2"><span class="text-sm font-semibold">💬 Bình luận ${has?`(${comments.length})`:''}</span></div>
-    <div class="comments-list space-y-1" id="comments-${recordId}">
-      ${has ? comments.map(c=>commentHTML(c)).join('') : '<div class="text-xs text-[--tx2] italic">Chưa có bình luận nào.</div>'}
-    </div>
+    <div class="comments-list space-y-1" id="comments-${recordId}">${commentsListHTML(comments)}</div>
     ${currentUser ? `
       <div class="flex items-center gap-2 mt-3">
         ${avatarHTML(currentProfile,'avatar avatar-sm')}
-        <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận..." data-record-id="${recordId}" maxlength="1000">
+        <input type="text" class="comment-input flex-1 !py-1.5 !px-3 text-sm" placeholder="Viết bình luận... (dùng @username để nhắc)" data-record-id="${recordId}" maxlength="1000">
         <button class="btn-p text-xs !py-1.5 !px-3 comment-send" data-record-id="${recordId}">Gửi</button>
       </div>
-    ` : `
-      <div class="text-xs text-[--tx2] mt-3"><a onclick="navigate('/login')" class="user-link">Đăng nhập</a> để bình luận.</div>
-    `}
+    ` : `<div class="text-xs text-[--tx2] mt-3"><a onclick="navigate('/login')" class="user-link">Đăng nhập</a> để bình luận.</div>`}
   </div>`;
 }
-function attachCommentHandlers(recordId){
-  const sendBtn = document.querySelector(`.comment-send[data-record-id="${recordId}"]`);
-  const input = document.querySelector(`.comment-input[data-record-id="${recordId}"]`);
-  if(sendBtn && input){
-    const send = async ()=>{
-      const content = input.value.trim();
-      if(!content) return;
-      sendBtn.disabled = true;
-      try{
-        const { error } = await sb.from('comments').insert({ record_id: recordId, user_id: currentUser.id, content });
-        if(error) throw error;
-        input.value = '';
-        await refreshComments(recordId);
-      }catch(err){ toast(err.message,'err'); }
-      finally{ sendBtn.disabled = false; }
-    };
-    sendBtn.onclick = send;
-    input.onkeydown = (e)=>{ if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); send(); } };
-  }
-  document.querySelectorAll(`.comments-list#comments-${recordId} .delete-comment`).forEach(el=>{
-    el.onclick = async ()=>{
-      if(!confirm('Xóa bình luận này?')) return;
-      const { error } = await sb.from('comments').delete().eq('id', el.dataset.id);
-      if(error){ toast(error.message,'err'); return; }
-      toast('Đã xóa.');
-      await refreshComments(recordId);
-    };
-  });
-}
+function attachCommentHandlers(){} // đã chuyển sang event delegation
 async function refreshComments(recordId){
-  const { data } = await sb.from('comments')
-    .select('id,record_id,user_id,content,created_at,profiles!comments_user_id_fkey(id,username,ingame_name,avatar_url)')
-    .eq('record_id', recordId).order('created_at',{ascending:true});
+  const { data } = await sb.from('comments').select(COMMENT_SELECT).eq('record_id', recordId).order('created_at',{ascending:true});
   const list = document.getElementById(`comments-${recordId}`);
-  if(list){
-    list.innerHTML = (data||[]).length ? data.map(c=>commentHTML(c)).join('') : '<div class="text-xs text-[--tx2] italic">Chưa có bình luận nào.</div>';
-    attachCommentHandlers(recordId);
-  }
+  if(list) list.innerHTML = commentsListHTML(data||[]);
 }
+async function sendComment(recordId){
+  const input = document.querySelector(`.comment-input[data-record-id="${recordId}"]`);
+  const content = input.value.trim(); if(!content) return;
+  const { error } = await sb.from('comments').insert({ record_id: recordId, user_id: currentUser.id, content, parent_id: input.dataset.parent || null });
+  if(error) return toast(error.message,'err');
+  input.value=''; delete input.dataset.parent; input.placeholder='Viết bình luận... (dùng @username để nhắc)';
+  await refreshComments(recordId);
+}
+async function toggleCommentReaction(commentId, stickerId, recordId){
+  if(!currentUser) return toast('Vui lòng đăng nhập.','err');
+  const { data: ex } = await sb.from('comment_reactions').select('id').eq('comment_id',commentId).eq('user_id',currentUser.id).eq('sticker_id',stickerId).maybeSingle();
+  if(ex) await sb.from('comment_reactions').delete().eq('id',ex.id);
+  else await sb.from('comment_reactions').insert({ comment_id:commentId, user_id:currentUser.id, sticker_id:stickerId });
+  await refreshComments(recordId);
+}
+async function reloadKeepScroll(){ const y=window.scrollY; await resolveRoute(); window.scrollTo(0,y); }
+function postActionsHTML(r, ownerId){
+  if(!currentUser) return '';
+  const own = currentUser.id === ownerId;
+  if(!own && !isModOrAdmin()) return '';
+  return `<span class="text-xs text-[--tx2] flex gap-3">${own?`<a class="edit-note hover:text-white" data-id="${r.id}" data-note="${esc(r.note||'')}">✏️ Sửa mô tả</a>`:''}<a class="del-rec" data-id="${r.id}" data-own="${own}" style="color:var(--err)">🗑️ Xóa</a></span>`;
+}
+document.addEventListener('keydown', (e)=>{
+  if(e.target.matches?.('.comment-input') && e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendComment(e.target.dataset.recordId); }
+});
+document.addEventListener('click', async (e)=>{
+  const t = e.target.closest('.comment-send,.c-react,.c-react-add,.reply-comment,.delete-comment,.edit-note,.del-rec');
+  if(!t) return;
+  const sec = t.closest('.comments-section');
+  const recId = sec?.dataset.recordId;
+  try{
+    if(t.matches('.comment-send')) return sendComment(t.dataset.recordId);
+    if(t.matches('.c-react')) return toggleCommentReaction(t.dataset.commentId, t.dataset.stickerId, recId);
+    if(t.matches('.c-react-add')){ e.stopPropagation(); return openStickerPicker(null, t, sid=>toggleCommentReaction(t.dataset.commentId, sid, recId)); }
+    if(t.matches('.reply-comment')){
+      const input = sec.querySelector('.comment-input');
+      if(!input) return;
+      input.value = `@${t.dataset.user} `; input.dataset.parent = t.dataset.id;
+      input.placeholder = `Đang trả lời @${t.dataset.user}...`; input.focus(); return;
+    }
+    if(t.matches('.delete-comment')){
+      let reason = null;
+      if(t.dataset.own === 'true'){ if(!confirm('Xóa bình luận của bạn?')) return; }
+      else { reason = prompt('Lý do xóa bình luận này (bắt buộc):'); if(!reason || !reason.trim()) return toast('Cần nhập lý do xóa.','err'); }
+      const { error } = await sb.rpc('delete_comment', { p_id: t.dataset.id, p_reason: reason });
+      if(error) return toast(error.message,'err');
+      toast('Đã xóa bình luận.'); return refreshComments(recId);
+    }
+    if(t.matches('.edit-note')){
+      const v = prompt('Sửa mô tả (tối đa 500 ký tự, để trống để xóa mô tả):', t.dataset.note || '');
+      if(v === null) return;
+      const { error } = await sb.rpc('update_record_note', { p_id: t.dataset.id, p_note: v });
+      if(error) return toast(error.message,'err');
+      toast('Đã cập nhật mô tả.'); return reloadKeepScroll();
+    }
+    if(t.matches('.del-rec')){
+      let reason = null;
+      if(t.dataset.own === 'true'){ if(!confirm('Xóa bài đăng kỷ lục này? Không thể hoàn tác.')) return; }
+      else { reason = prompt('Lý do xóa bài đăng của thành viên này (bắt buộc):'); if(!reason || !reason.trim()) return toast('Cần nhập lý do xóa.','err'); }
+      const { data: evPath, error } = await sb.rpc('delete_record', { p_id: t.dataset.id, p_reason: reason });
+      if(error) return toast(error.message,'err');
+      if(evPath){ try{ await sb.storage.from('evidence').remove([evPath]); }catch(_){} }
+      toast('Đã xóa bài đăng.'); return reloadKeepScroll();
+    }
+  }catch(err){ toast(err.message,'err'); }
+});
 
 // ============ STICKERS & REACTIONS ============
 let allStickersCache = null;
@@ -261,7 +308,7 @@ function reactionsBarHTML(recordId, reactions){
     ${currentUser ? `<button class="sticker-add-btn text-xs text-[--tx2] hover:text-white px-2 py-1 rounded-lg border" style="border-color:var(--bd)" data-record-id="${recordId}">+ 😀</button>` : ''}
   </div>`;
 }
-async function openStickerPicker(recordId, anchorEl){
+async function openStickerPicker(recordId, anchorEl, onPick){
   closeAllStickerPickers();
   const stickers = await loadAllStickers();
   const picker = document.createElement('div');
@@ -281,7 +328,7 @@ async function openStickerPicker(recordId, anchorEl){
   `).join('') + `<button class="sticker-item" id="new-sticker-btn" style="background:var(--bg2);border:1px dashed var(--bd)">➕</button>`;
   document.body.appendChild(picker);
   picker.querySelectorAll('.sticker-item[data-sticker-id]').forEach(btn=>{
-    btn.onclick = async ()=>{ await toggleReaction(recordId, btn.dataset.stickerId); closeAllStickerPickers(); };
+    btn.onclick = async ()=>{ await (onPick ? onPick(btn.dataset.stickerId) : toggleReaction(recordId, btn.dataset.stickerId)); closeAllStickerPickers(); };
   });
   picker.querySelectorAll('.sticker-del').forEach(el=>{
     el.onclick = async (e)=>{
@@ -394,6 +441,7 @@ async function resolveRoute(){
       const params = {};
       keys.forEach((k,i)=>params[k]=decodeURIComponent(m[i+1]));
       params._query = query;
+      if(currentUser) await refreshUnreadCount();
       app.innerHTML = '<div class="p-10 text-center text-[--tx2]">Đang tải...</div>';
       try{ await routes[pattern](params); }
       catch(e){ console.error(e); app.innerHTML = `<div class="p-10 text-center text-[--err]">Lỗi: ${esc(e.message)}</div>`; }
@@ -407,7 +455,8 @@ window.addEventListener('hashchange', resolveRoute);
 async function refreshUnreadCount(){
   if(!currentUser){ unreadCount = 0; return; }
   const { count } = await sb.from('records').select('*', { count:'exact', head:true }).eq('user_id', currentUser.id).in('status', ['approved','rejected']).is('notified_at', null);
-  unreadCount = count || 0;
+  const { count: c2 } = await sb.from('notifications').select('*', { count:'exact', head:true }).eq('user_id', currentUser.id).is('read_at', null);
+  unreadCount = (count||0) + (c2||0);
 }
 
 function layout(content){
@@ -632,8 +681,9 @@ function feedPost(r, evidenceUrl, top1Keys, comments, reactions){
     </div>
     ${evidenceUrl?`<a href="${evidenceUrl}" target="_blank" class="block"><img src="${evidenceUrl}" class="feed-img" loading="lazy" onerror="this.parentElement.style.display='none'"></a>`:''}
     ${commentSectionHTML(r.id, comments)}
-    <div class="p-3 md:p-4 border-t flex justify-between items-center gap-2" style="border-color:var(--bd)">
+    <div class="p-3 md:p-4 border-t flex justify-between items-center gap-2 flex-wrap" style="border-color:var(--bd)">
       <a onclick="navigate('/map/${esc(r.maps.slug)}')" class="text-sm text-[--tx2] hover:text-white">🗺️ Xem map</a>
+      ${postActionsHTML(r, p.id)}
       <a onclick="navigate('/user/${esc(p.username)}')" class="text-sm text-[--tx2] hover:text-white">📖 Blog của ${esc(p.ingame_name||p.username)} →</a>
     </div>
   </article>`;
@@ -931,6 +981,7 @@ route('/user/:username', async (p)=>{
             </div>
             ${r.note?`<div class="text-xs md:text-sm italic text-[--tx2] mb-3 p-2 rounded-lg" style="background:var(--bg2)">💬 "${esc(r.note)}"</div>`:''}
             ${reactionsBarHTML(r.id, reactionsMap[r.id]||[])}
+            <div class="mt-2">${postActionsHTML(r, profile.id)}</div>
             ${url?`<div class="mt-3"><div class="text-xs text-[--tx2] mb-2">📸 Ảnh bằng chứng:</div><a href="${url}" target="_blank" class="block"><img src="${url}" class="blog-evidence" loading="lazy" onerror="this.style.display='none'"></a></div>`:''}
             ${commentSectionHTML(r.id, commentsMap[r.id]||[])}
           </article>
@@ -952,6 +1003,7 @@ route('/user/:username', async (p)=>{
     </div>
   `);
   (recs||[]).forEach(r=>{ attachCommentHandlers(r.id); attachReactionHandlers(r.id); });
+  if(p._query && p._query.rec) document.querySelector(`[data-record-id="${p._query.rec}"]`)?.scrollIntoView({ block:'center' });
   document.querySelectorAll('.profile-tab').forEach(tab=>{
     tab.onclick = ()=>{
       const target = tab.dataset.tab;
@@ -1005,22 +1057,56 @@ route('/user/:username', async (p)=>{
 function profileStat(label,val){ return `<div class="rounded-xl p-3 md:p-4 text-center" style="background:var(--bg2);border:1px solid var(--bd)"><div class="text-xl md:text-3xl font-extrabold" style="color:var(--blue)">${val}</div><div class="text-[10px] md:text-sm text-[--tx2] mt-1">${esc(label)}</div></div>`; }
 
 // ============ NOTIFICATIONS ============
+function actText(n){
+  const a = `<b>${esc(n.actor?.ingame_name||'Ai đó')}</b>`;
+  const q = n.content ? `: "${esc(n.content)}"` : '';
+  switch(n.type){
+    case 'react_record': return `${a} đã thả ${esc(n.content||'😀')} vào bài đăng của bạn`;
+    case 'comment': return `${a} đã bình luận bài đăng của bạn${q}`;
+    case 'reply': return `${a} đã trả lời bình luận của bạn${q}`;
+    case 'mention': return `${a} đã nhắc đến bạn trong một bình luận${q}`;
+    case 'react_comment': return `${a} đã thả ${esc(n.content||'😀')} vào bình luận của bạn`;
+    case 'record_deleted': case 'comment_deleted': return `🗑️ ${esc(n.content||'')} <span class="text-[--tx2]">(bởi ${esc(n.actor?.ingame_name||'quản trị viên')})</span>`;
+    default: return esc(n.content||'');
+  }
+}
+function actCard(n){
+  const unread = !n.read_at;
+  return `<div class="card p-3 md:p-4 cursor-pointer act-item flex gap-3 items-start" data-id="${n.id}" data-link="${esc(n.link||'')}" data-unread="${unread}">
+    ${avatarHTML(n.actor,'avatar avatar-sm')}
+    <div class="flex-1 min-w-0 text-sm break-words">${actText(n)}${unread?' <span class="badge text-[10px]" style="background:var(--err);color:white">Mới</span>':''}<div class="text-[10px] md:text-xs text-[--tx2] mt-1">${timeAgo(n.created_at)}</div></div>
+  </div>`;
+}
 route('/notifications', async ()=>{
   if(!currentUser) return navigate('/login');
-  const { data: notifs, error } = await sb.from('records').select('id,time_ms,car,pet,status,rejection_reason,approved_at,notified_at,maps(name,slug)').eq('user_id', currentUser.id).in('status', ['approved','rejected']).order('approved_at',{ascending:false}).limit(100);
+  const [{ data: notifs, error }, { data: acts }] = await Promise.all([
+    sb.from('records').select('id,time_ms,car,pet,status,rejection_reason,approved_at,notified_at,maps(name,slug)').eq('user_id',currentUser.id).in('status',['approved','rejected']).order('approved_at',{ascending:false}).limit(100),
+    sb.from('notifications').select('id,type,content,link,read_at,created_at,actor:profiles!notifications_actor_id_fkey(username,ingame_name,avatar_url)').eq('user_id',currentUser.id).order('created_at',{ascending:false}).limit(100)
+  ]);
   if(error) throw error;
-  const unread = (notifs||[]).filter(n=>!n.notified_at);
-  const read = (notifs||[]).filter(n=>n.notified_at);
+  const unread = (notifs||[]).filter(n=>!n.notified_at), read = (notifs||[]).filter(n=>n.notified_at);
+  const actUnread = (acts||[]).filter(a=>!a.read_at);
+  const totalUnread = unread.length + actUnread.length;
   layout(`
-    <div class="flex justify-between items-center mb-4 md:mb-6 flex-wrap gap-2"><h1 class="text-xl md:text-2xl font-extrabold">🔔 Thông báo</h1>${unread.length?`<button id="mark-all-read" class="btn-s text-xs md:text-sm !py-1.5 !px-3">Đánh dấu tất cả đã đọc</button>`:''}</div>
-    ${!notifs.length?emptyState('Chưa có thông báo nào.'):''}
-    ${unread.length?`<h2 class="text-base md:text-lg font-bold mb-2 md:mb-3 mt-4">Chưa đọc (${unread.length})</h2><div class="space-y-2 mb-6 md:mb-8">${unread.map(n=>notifCard(n,true)).join('')}</div>`:''}
-    ${read.length?`<h2 class="text-base md:text-lg font-bold mb-2 md:mb-3">Đã đọc</h2><div class="space-y-2 opacity-70">${read.map(n=>notifCard(n,false)).join('')}</div>`:''}
+    <div class="flex justify-between items-center mb-4 md:mb-6 flex-wrap gap-2"><h1 class="text-xl md:text-2xl font-extrabold">🔔 Thông báo</h1>${totalUnread?`<button id="mark-all-read" class="btn-s text-xs md:text-sm !py-1.5 !px-3">Đánh dấu tất cả đã đọc</button>`:''}</div>
+    ${!(notifs||[]).length && !(acts||[]).length ? emptyState('Chưa có thông báo nào.') : ''}
+    ${(acts||[]).length?`<h2 class="text-base md:text-lg font-bold mb-2 md:mb-3 mt-4">Hoạt động</h2><div class="space-y-2 mb-6 md:mb-8">${acts.map(actCard).join('')}</div>`:''}
+    ${unread.length?`<h2 class="text-base md:text-lg font-bold mb-2 md:mb-3 mt-4">Kỷ lục chưa đọc (${unread.length})</h2><div class="space-y-2 mb-6 md:mb-8">${unread.map(n=>notifCard(n,true)).join('')}</div>`:''}
+    ${read.length?`<h2 class="text-base md:text-lg font-bold mb-2 md:mb-3">Kỷ lục đã đọc</h2><div class="space-y-2 opacity-70">${read.map(n=>notifCard(n,false)).join('')}</div>`:''}
   `);
   const markAll = document.getElementById('mark-all-read');
-  if(markAll){ markAll.onclick = async ()=>{ markAll.disabled=true; markAll.textContent='Đang xử lý...'; const ids = unread.map(n=>n.id); const { error } = await sb.from('records').update({ notified_at: new Date().toISOString() }).in('id', ids); if(error){ toast(error.message,'err'); markAll.disabled=false; markAll.textContent='Đánh dấu tất cả đã đọc'; return; } await refreshUnreadCount(); toast('Đã đánh dấu tất cả đã đọc.'); resolveRoute(); }; }
+  if(markAll) markAll.onclick = async ()=>{
+    markAll.disabled = true;
+    const now = new Date().toISOString();
+    if(unread.length) await sb.from('records').update({ notified_at: now }).in('id', unread.map(n=>n.id));
+    if(actUnread.length) await sb.from('notifications').update({ read_at: now }).in('id', actUnread.map(n=>n.id));
+    await refreshUnreadCount(); toast('Đã đánh dấu tất cả đã đọc.'); resolveRoute();
+  };
   document.querySelectorAll('.notif-item').forEach(el=>{
-    el.onclick = async ()=>{ const id = el.dataset.id; const slug = el.dataset.slug; if(el.dataset.unread === 'true'){ await sb.from('records').update({ notified_at: new Date().toISOString() }).eq('id', id); await refreshUnreadCount(); } navigate('/map/'+slug); };
+    el.onclick = async ()=>{ if(el.dataset.unread==='true'){ await sb.from('records').update({ notified_at:new Date().toISOString() }).eq('id',el.dataset.id); await refreshUnreadCount(); } navigate('/map/'+el.dataset.slug); };
+  });
+  document.querySelectorAll('.act-item').forEach(el=>{
+    el.onclick = async ()=>{ if(el.dataset.unread==='true'){ await sb.from('notifications').update({ read_at:new Date().toISOString() }).eq('id',el.dataset.id); await refreshUnreadCount(); } if(el.dataset.link) navigate(el.dataset.link); };
   });
 });
 function notifCard(n, isUnread){
@@ -1045,7 +1131,7 @@ route('/submit-record', async (params)=>{
       <form id="f-rec" class="space-y-4">
         <div><label class="text-sm text-[--tx2]">Map</label><div class="map-combobox mt-1 ${presetMap?'has-value':''}" id="map-cb"><span class="cb-icon">🔍</span><input type="text" class="cb-input" id="map-cb-input" placeholder="Gõ để tìm map..." autocomplete="off" value="${presetMap?esc(presetMap.name):''}"><button type="button" class="cb-clear" id="map-cb-clear">✕</button><input type="hidden" name="map_id" id="map-cb-value" value="${presetMap?presetMap.id:''}"><div class="cb-list" id="map-cb-list"></div></div><p class="text-xs text-[--tx2] mt-1" id="map-cb-hint">${presetMap?`Đã chọn: <b class="text-white">${esc(presetMap.name)}</b> (${presetMap.difficulty}⭐)`:'Chưa chọn map'}</p></div>
         <div><label class="text-sm text-[--tx2]">Loại xe</label><select required name="car_type" class="mt-1"><option value="">-- Chọn loại xe --</option><option value="T">Xe T</option><option value="A">Xe A</option></select></div>
-        <div class="grid grid-cols-2 gap-3"><div><label class="text-sm text-[--tx2]">Xe</label><input name="car" maxlength="64" placeholder="VD: Ferrari F8" class="mt-1"></div><div><label class="text-sm text-[--tx2]">Pet</label><input name="pet" maxlength="64" placeholder="VD: Rồng Lửa" class="mt-1"></div></div>
+        <div class="grid grid-cols-2 gap-3"><div><label class="text-sm text-[--tx2]">Xe</label><input name="car" maxlength="64" placeholder="VD: T2 đặc cầu,T7 Vân Tiêu" class="mt-1"></div><div><label class="text-sm text-[--tx2]">Pet</label><input name="pet" maxlength="64" placeholder="VD:Gấu Bel,Linh Xà Sen Mộng" class="mt-1"></div></div>
         <div><label class="text-sm text-[--tx2]">Thời gian (MM:SS:mm)</label><input required name="time_str" placeholder="01:25:35" class="mt-1 font-mono"></div>
         <div><label class="text-sm text-[--tx2]">Ảnh bằng chứng (tối đa ${MAX_UPLOAD_MB}MB)</label><input required type="file" name="evidence_file" id="evidence_file" accept="image/png,image/jpeg,image/webp" class="mt-1"><img id="evidence_preview" class="hidden mt-2 max-h-48 rounded-lg border" style="border-color:var(--bd)"></div>
         <div><label class="text-sm text-[--tx2]">Ghi chú</label><textarea name="note" maxlength="500" class="mt-1" rows="2"></textarea></div>
